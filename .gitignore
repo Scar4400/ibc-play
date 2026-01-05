@@ -1,33 +1,21 @@
-# Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
 env/
 venv/
 .env
-
-# SQLite DB
-*.db
 app.db
-instance/
 *.sqlite3
-
-# Postgres data (docker)
+*.db
+instance/
 pgdata/
 redisdata/
-
-# VS Code
 .vscode/
-
-# Build artifacts
 wheels/
 build/
 dist/
 *.egg-info/
-
-# logs
 *.log
-
-# OS
 .DS_Store
+alembic/versions/*  # If not committing migrations
