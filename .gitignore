@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+env/
+venv/
+.env
+
+# SQLite DB
+*.db
+app.db
+instance/
+*.sqlite3
+
+# Postgres data (docker)
+pgdata/
+redisdata/
+
+# VS Code
+.vscode/
+
+# Build artifacts
+wheels/
+build/
+dist/
+*.egg-info/
+
+# logs
+*.log
+
+# OS
+.DS_Store
