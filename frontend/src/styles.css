@@ -1,0 +1,9 @@
+:root{
+  --bg:#071029; --card: rgba(255,255,255,0.03); --primary:#0ea5e9; --accent:#f97316; --muted:#94a3b8;
+}
+body { background: linear-gradient(180deg,#071029 0%, #071829 100%); color: #e6eef8; font-family: Inter, system-ui, sans-serif; padding: 1rem; }
+.container { max-width: 1100px; margin: 0 auto; }
+.card { background: var(--card); border-radius: 8px; padding: 1rem; border: 1px solid rgba(255,255,255,0.04); }
+.btn { padding: 0.5rem 0.8rem; border-radius: 6px; border: none; cursor: pointer; }
+.btn-primary { background: var(--primary); color: #041025; }
+.small-muted { color: var(--muted); font-size: .9rem; }
