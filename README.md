@@ -1,601 +1,509 @@
 # 🎰 IBC Play - Crypto Sports Betting & Casino Platform
 
-A complete, production-ready sports betting and casino platform with cryptocurrency integration. Built with FastAPI, SQLite/PostgreSQL, and real-time crypto prices from CoinGecko.
+> A full-stack sports betting and casino platform with cryptocurrency integration, built with FastAPI, React, and real-time crypto pricing.
 
-**⚠️ Disclaimer**: This is a demonstration platform for educational purposes. Do not use for real money without proper licensing, auditing, and compliance.
+[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18+-61DAFB.svg)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
+![IBC Play Banner](https://via.placeholder.com/1200x300/667eea/ffffff?text=IBC+Play+-+Crypto+Betting+%26+Casino)
 
-## 🌟 Features
+-----
 
-### 💰 Wallet & Crypto
-- **Multi-currency wallets**: USD, BTC, ETH, SOL, BNB
-- **Real-time prices**: Live crypto prices via CoinGecko API
-- **Deposits & withdrawals**: Instant transactions
-- **Currency conversion**: Seamless transfers between currencies
-- **Transaction history**: Complete audit trail
+## 📋 Table of Contents
 
-### 🎮 Casino Games
-- **Dice**: Predict over/under on 0-100 roll
-- **Coin Flip**: Classic heads or tails
-- **Slots**: 3-reel slot machine with 7 symbols
-- **Roulette**: European roulette (0-36)
-- **Crash**: Cash out before the multiplier crashes
-- **Blackjack**: Beat the dealer (simplified rules)
+- [Features](#-features)
+- [Tech Stack](#-tech-stack)
+- [Quick Start](#-quick-start)
+- [Project Structure](#-project-structure)
+- [API Documentation](#-api-documentation)
+- [Casino Games](#-casino-games)
+- [Deployment](#-deployment)
+- [Screenshots](#-screenshots)
+- [Contributing](#-contributing)
+- [License](#-license)
+
+-----
+
+## ✨ Features
+
+### 🎲 Casino Games
+
+- **6 Fully Functional Games**
+  - 🎰 Slots (3-reel with jackpots)
+  - 🎲 Dice (Over/Under)
+  - 🪙 Coin Flip
+  - 🎡 Roulette (European wheel)
+  - 🚀 Crash Game
+  - 🃏 Blackjack
 
 ### ⚽ Sports Betting
-- **Multiple bet types**: Single bets, accumulators
-- **Live odds**: Dynamic odds calculation
-- **Bet history**: Track all your bets
-- **Auto-settlement**: Automated bet resolution
-- **Multiple sports**: Football, basketball, tennis, etc.
 
-### 🔐 Security & Features
-- **JWT Authentication**: Secure token-based auth
-- **Password hashing**: Bcrypt encryption
-- **Rate limiting**: Protection against abuse
-- **Input validation**: Pydantic models
-- **Error handling**: Comprehensive logging
-- **Database persistence**: SQLite (dev) / PostgreSQL (prod)
+- Live match odds
+- Multiple bet types
+- Real-time bet placement
+- Comprehensive betting history
 
----
+### 💰 Wallet Management
 
-## 🏗️ Architecture
+- Multi-currency support (USD, BTC, ETH, SOL, BNB)
+- Real-time crypto prices via CoinGecko API
+- Instant deposits & withdrawals
+- Complete transaction history
 
-```mermaid
-graph TD
-    A[React HTML UI] -->|HTTP/REST| B[FastAPI Backend]
-    B -->|JWT Auth| C[Protected Endpoints]
-    B -->|SQLAlchemy ORM| D[(SQLite/PostgreSQL)]
-    B -->|HTTP Client| E[CoinGecko API]
-    B -->|In-Memory| F[Price Cache 60s TTL]
-    
-    C --> G[/wallet<br>/deposit<br>/withdraw]
-    C --> H[/bets<br>/bets/history<br>/bets/resolve]
-    C --> I[/casino/play<br>/casino/history<br>/casino/stats]
-    
-    D --> J[(Users)]
-    D --> K[(Wallets)]
-    D --> L[(Transactions)]
-    D --> M[(Bets)]
-    D --> N[(Casino Rounds)]
-```
+### 🔐 Security
 
----
+- JWT-based authentication
+- Password hashing with bcrypt
+- Secure session management
+- Input validation & sanitization
+
+### 📊 Analytics
+
+- User statistics dashboard
+- Win/loss tracking
+- Profit/loss calculations
+- Game history analytics
+
+-----
+
+## 🛠️ Tech Stack
+
+### Backend
+
+|Technology           |Purpose                               |
+|---------------------|--------------------------------------|
+|**FastAPI**          |Modern Python web framework           |
+|**SQLite/PostgreSQL**|Database (SQLite dev, PostgreSQL prod)|
+|**SQLAlchemy**       |ORM and database toolkit              |
+|**Pydantic**         |Data validation                       |
+|**python-jose**      |JWT token handling                    |
+|**passlib**          |Password hashing                      |
+|**httpx**            |Async HTTP client                     |
+
+### Frontend
+
+|Technology      |Purpose              |
+|----------------|---------------------|
+|**React 18**    |UI framework         |
+|**Tailwind CSS**|Utility-first styling|
+|**Fetch API**   |HTTP requests        |
+
+### External Services
+
+|Service          |Purpose                |
+|-----------------|-----------------------|
+|**CoinGecko API**|Real-time crypto prices|
+|**Render.com**   |Hosting & deployment   |
+
+-----
 
 ## 🚀 Quick Start
 
 ### Prerequisites
+
+```bash
+# Required
 - Python 3.9+
 - pip
 - Git
 
+# Optional
+- PostgreSQL (for production)
+- Redis (for caching)
+```
+
 ### Installation
 
 ```bash
-# Clone repository
+# 1. Clone the repository
 git clone https://github.com/Scar4400/ibc-play.git
 cd ibc-play
 
-# Create virtual environment
+# 2. Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Linux/Mac
+# OR
+venv\Scripts\activate  # Windows
 
-# Install dependencies
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# Set up environment variables
+# 4. Setup environment
 cp .env.example .env
-# Edit .env with your settings (SECRET_KEY is critical!)
+# Edit .env with your configuration
 
-# Initialize database
+# 5. Initialize database
 python db_init.py
 
-# Run development server
+# 6. Run the server
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Access the Application
 
-- **API Docs**: http://localhost:8000/docs
 - **API**: http://localhost:8000
-- **Health Check**: http://localhost:8000/health
-- **Demo Frontend**: Open `ib-crypto-play-demo.html` in your browser
+- **API Docs**: http://localhost:8000/docs
+- **Frontend**: Open `index.html` in browser or use http server
 
-### Demo Account
+**Default Admin Login:**
+
+- Username: `admin`
+- Password: `admin123` (⚠️ Change immediately!)
+
+-----
+
+## 📁 Project Structure
 
 ```
-Username: demo
-Password: demo123
-Initial Balance: $10,000 USD
+ibc-play/
+├── main.py                    # FastAPI application
+├── db_init.py                 # Database initialization
+├── requirements.txt           # Python dependencies
+├── .env.example              # Environment template
+├── .gitignore                # Git ignore rules
+├── render.yaml               # Render deployment config
+├── index.html                # React frontend demo
+├── alembic/                  # Database migrations
+│   └── versions/
+├── frontend/                 # Frontend assets (if separated)
+│   └── index.html
+├── logs/                     # Application logs
+└── docs/                     # Documentation
+    ├── SETUP_GUIDE.md
+    └── API.md
 ```
 
----
+-----
 
 ## 📚 API Documentation
 
+### Base URL
+
+```
+Development: http://localhost:8000
+Production: https://your-app.onrender.com
+```
+
 ### Authentication
 
-#### Register
-```http
-POST /register
-Content-Type: application/json
+All protected endpoints require a JWT token in the `Authorization` header:
 
-{
-  "username": "johndoe",
-  "email": "john@example.com",
-  "password": "securepass123",
-  "full_name": "John Doe"
-}
+```bash
+Authorization: Bearer <your_jwt_token>
 ```
 
-#### Login
-```http
-POST /login
-Content-Type: application/x-www-form-urlencoded
+### Key Endpoints
 
-username=demo&password=demo123
+#### Authentication
+
+```bash
+POST /register          # Register new user
+POST /login             # Login and get JWT
+GET  /me                # Get current user info
 ```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGc...",
-  "token_type": "bearer"
-}
+#### Wallet
+
+```bash
+GET  /wallet            # Get all wallets
+POST /deposit           # Deposit crypto
+POST /withdraw          # Withdraw crypto
+GET  /transactions      # Transaction history
 ```
 
-### Wallet Operations
+#### Casino
 
-#### Get Wallet
-```http
-GET /wallet
-Authorization: Bearer <token>
+```bash
+GET  /casino/games      # List available games
+POST /casino/play       # Play a game
+GET  /casino/history    # Game history
 ```
 
-**Response:**
-```json
-{
-  "wallets": [
-    {
-      "currency": "USD",
-      "balance": 10000.0,
-      "locked_balance": 0.0,
-      "usd_value": 10000.0
-    },
-    {
-      "currency": "BTC",
-      "balance": 0.5,
-      "locked_balance": 0.0,
-      "usd_value": 22500.0
-    }
-  ],
-  "total_usd_value": 32500.0
-}
+#### Sports Betting
+
+```bash
+GET  /bets/matches      # Available matches
+POST /bets              # Place a bet
+GET  /bets/history      # Betting history
 ```
 
-#### Deposit
-```http
-POST /deposit
-Authorization: Bearer <token>
-Content-Type: application/json
+#### Crypto Prices
 
-{
-  "currency": "BTC",
-  "amount": 0.1
-}
+```bash
+GET  /crypto/prices     # All crypto prices
+GET  /crypto/price/{symbol}  # Specific crypto price
 ```
 
-#### Withdraw
-```http
-POST /withdraw
-Authorization: Bearer <token>
-Content-Type: application/json
+### Example Requests
 
-{
-  "currency": "USD",
-  "amount": 100.0
-}
+**Register User:**
+
+```bash
+curl -X POST http://localhost:8000/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "player1",
+    "email": "player1@example.com",
+    "password": "securepass123"
+  }'
 ```
 
-#### Transfer/Convert
-```http
-POST /transfer
-Authorization: Bearer <token>
-Content-Type: application/json
+**Login:**
 
-{
-  "from_currency": "USD",
-  "to_currency": "BTC",
-  "amount": 1000.0
-}
+```bash
+curl -X POST http://localhost:8000/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=player1&password=securepass123"
 ```
+
+**Play Slots:**
+
+```bash
+curl -X POST http://localhost:8000/casino/play \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "game": "slots",
+    "bet_amount": 10.0,
+    "bet_options": {}
+  }'
+```
+
+For complete API documentation, visit `/docs` when the server is running.
+
+-----
+
+## 🎮 Casino Games
+
+### Game Details
+
+|Game         |Min Bet|House Edge|Description             |
+|-------------|-------|----------|------------------------|
+|**Slots**    |$1     |5%        |3-reel slot with jackpot|
+|**Dice**     |$1     |2%        |Roll over/under target  |
+|**Coin Flip**|$1     |2.5%      |50/50 heads or tails    |
+|**Roulette** |$1     |2.7%      |European wheel (0-36)   |
+|**Crash**    |$1     |3%        |Cash out before crash   |
+|**Blackjack**|$1     |1.5%      |Beat the dealer         |
+
+### Game Mechanics
+
+#### Slots
+
+```
+Symbols: 🍒 🍋 🍊 🍇 ⭐ 💎 7️⃣
+Three 7️⃣: 100x (Jackpot!)
+Three 💎: 50x
+Three ⭐: 20x
+Three matching: 2-10x
+Two matching: 1.5x
+```
+
+#### Dice
+
+```
+Roll: 1-100
+Bet Types:
+  - Over <target>
+  - Under <target>
+Win Chance: Calculated based on target
+Payout: Dynamic based on probability
+```
+
+#### Roulette
+
+```
+Numbers: 0-36
+Bet Types:
+  - Number (35:1)
+  - Color (1:1)
+  - Odd/Even (1:1)
+```
+
+-----
+
+## 🌐 Deployment
+
+### Deploy to Render.com
+
+**Step 1:** Push code to GitHub
+
+```bash
+git add .
+git commit -m "Ready for deployment"
+git push origin main
+```
+
+**Step 2:** Create Render Web Service
+
+1. Connect GitHub repository
+1. Use `render.yaml` configuration
+1. Set environment variables
+1. Deploy!
+
+**Step 3:** Access Your App
+
+```
+Backend: https://ibc-play-api.onrender.com
+Frontend: https://ibc-play-frontend.onrender.com
+```
+
+### Environment Variables (Production)
+
+```env
+SECRET_KEY=<generate-secure-32-char-key>
+DATABASE_URL=postgresql://user:pass@host:5432/db
+COINGECKO_API_URL=https://api.coingecko.com/api/v3
+CORS_ORIGINS=https://your-frontend.com
+```
+
+For detailed deployment instructions, see <SETUP_GUIDE.md>.
+
+-----
+
+## 📸 Screenshots
+
+### Casino Dashboard
+
+![Casino](https://via.placeholder.com/800x500/667eea/ffffff?text=Casino+Dashboard)
 
 ### Sports Betting
 
-#### Place Bet
-```http
-POST /bets
-Authorization: Bearer <token>
-Content-Type: application/json
+![Sports](https://via.placeholder.com/800x500/764ba2/ffffff?text=Sports+Betting)
 
-{
-  "bet_type": "single",
-  "sport": "football",
-  "event_name": "Man United vs Liverpool",
-  "selection": "Man United to win",
-  "odds": 2.5,
-  "stake_amount": 100.0,
-  "stake_currency": "USD"
-}
+### Wallet Management
+
+![Wallet](https://via.placeholder.com/800x500/f093fb/ffffff?text=Wallet+Management)
+
+-----
+
+## 🏗️ Architecture
+
+```mermaid
+graph TB
+    A[User Browser] -->|HTTPS| B[React Frontend]
+    B -->|REST API| C[FastAPI Backend]
+    C -->|JWT Auth| D[Auth Middleware]
+    C -->|ORM| E[SQLite/PostgreSQL]
+    C -->|HTTP| F[CoinGecko API]
+    C -->|Cache| G[Redis Optional]
+    
+    subgraph Backend Services
+        C
+        D
+        E
+    end
+    
+    subgraph External Services
+        F
+        G
+    end
 ```
 
-#### Get Bet History
-```http
-GET /bets/history?limit=20&status=pending
-Authorization: Bearer <token>
-```
-
-#### Resolve Bet (Admin/Simulation)
-```http
-POST /bets/{bet_id}/resolve
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "result": "won"
-}
-```
-
-### Casino Games
-
-#### List Games
-```http
-GET /casino/games
-```
-
-#### Play Game
-```http
-POST /casino/play
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "game": "dice",
-  "bet_amount": 10.0,
-  "bet_currency": "USD",
-  "bet_options": {
-    "prediction": "over",
-    "target": 50
-  }
-}
-```
-
-**Game Options by Type:**
-
-**Dice:**
-```json
-{
-  "prediction": "over",  // or "under"
-  "target": 50          // 0-100
-}
-```
-
-**Coin Flip:**
-```json
-{
-  "choice": "heads"  // or "tails"
-}
-```
-
-**Roulette:**
-```json
-{
-  "bet_type": "red",  // "red", "black", "odd", "even", "number"
-  "value": 7          // only for "number" bet_type
-}
-```
-
-**Crash:**
-```json
-{
-  "cashout_at": 2.0  // target multiplier
-}
-```
-
-**Slots & Blackjack:**
-No options required - just play!
-
-#### Get Casino History
-```http
-GET /casino/history?limit=50&game=dice
-Authorization: Bearer <token>
-```
-
-#### Get Casino Stats
-```http
-GET /casino/stats
-Authorization: Bearer <token>
-```
-
----
-
-## 🎮 Casino Games Guide
-
-### 🎲 Dice
-- **How to play**: Choose "over" or "under" and set a target number (0-100)
-- **Winning**: Roll must be above target (over) or below target (under)
-- **Payout**: Based on win probability with 2% house edge
-- **Example**: Target 70, Over = 30% win chance = 3.27x payout
-
-### 🪙 Coin Flip
-- **How to play**: Choose heads or tails
-- **Winning**: Coin lands on your choice
-- **Payout**: 1.95x (50% win chance, 2% house edge)
-
-### 🎰 Slots
-- **How to play**: Spin 3 reels
-- **Winning**: All 3 symbols match
-- **Payouts**: 
-  - 🍒 Cherry: 2x
-  - 🍋 Lemon: 3x
-  - 🍊 Orange: 5x
-  - 🍇 Grape: 10x
-  - 🔔 Bell: 20x
-  - 💎 Diamond: 50x
-  - 7️⃣ Seven: 100x
-
-### 🎡 Roulette
-- **How to play**: European wheel (0-36)
-- **Bet types**:
-  - Red/Black: 2x payout
-  - Odd/Even: 2x payout
-  - Single number: 35x payout
-- **House edge**: 2.7%
-
-### 💥 Crash
-- **How to play**: Set cashout multiplier before playing
-- **Winning**: Crash point must be higher than cashout target
-- **Risk vs Reward**: Higher multipliers = lower probability
-- **Max**: 100x multiplier
-
-### 🃏 Blackjack
-- **How to play**: Auto-hit until 17+, dealer follows same rules
-- **Winning**: Beat dealer without going bust (>21)
-- **Payout**: 2x on win, push returns bet
-- **Simplified**: No split, double down, or insurance
-
----
-
-## 🗄️ Database Schema
-
-### Users
-```sql
-- id: INTEGER PRIMARY KEY
-- username: TEXT UNIQUE
-- email: TEXT UNIQUE
-- hashed_password: TEXT
-- full_name: TEXT
-- is_active: BOOLEAN
-- is_verified: BOOLEAN
-- created_at: TIMESTAMP
-- updated_at: TIMESTAMP
-```
-
-### Wallets
-```sql
-- id: INTEGER PRIMARY KEY
-- user_id: INTEGER (FK)
-- currency: TEXT
-- balance: REAL
-- locked_balance: REAL
-- created_at: TIMESTAMP
-- updated_at: TIMESTAMP
-- UNIQUE(user_id, currency)
-```
-
-### Transactions
-```sql
-- id: INTEGER PRIMARY KEY
-- user_id: INTEGER (FK)
-- transaction_type: TEXT
-- currency: TEXT
-- amount: REAL
-- usd_value: REAL
-- status: TEXT
-- description: TEXT
-- reference_id: TEXT
-- metadata: TEXT (JSON)
-- created_at: TIMESTAMP
-- completed_at: TIMESTAMP
-```
-
-### Bets
-```sql
-- id: INTEGER PRIMARY KEY
-- user_id: INTEGER (FK)
-- bet_type: TEXT
-- sport: TEXT
-- event_name: TEXT
-- selection: TEXT
-- odds: REAL
-- stake_amount: REAL
-- stake_currency: TEXT
-- potential_payout: REAL
-- status: TEXT
-- result: TEXT
-- settled_amount: REAL
-- placed_at: TIMESTAMP
-- settled_at: TIMESTAMP
-```
-
-### Casino Rounds
-```sql
-- id: INTEGER PRIMARY KEY
-- user_id: INTEGER (FK)
-- game_name: TEXT
-- bet_amount: REAL
-- bet_currency: TEXT
-- result: TEXT
-- payout_amount: REAL
-- multiplier: REAL
-- game_data: TEXT (JSON)
-- created_at: TIMESTAMP
-```
-
----
-
-## 🔧 Configuration
-
-### Environment Variables
-
-```bash
-# Application
-APP_NAME=IBC-Play
-ENV=development
-DEBUG=True
-
-# Security
-SECRET_KEY=your-secret-key-min-32-chars
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=10080
-
-# Database
-DATABASE_URL=sqlite:///./ibc_play.db
-# For production: postgresql://user:pass@host:5432/dbname
-
-# External APIs
-COINGECKO_API_URL=https://api.coingecko.com/api/v3
-COINGECKO_API_KEY=
-
-# Casino Settings
-HOUSE_EDGE=0.02
-MIN_BET_AMOUNT=1.0
-MAX_BET_AMOUNT=10000.0
-
-# Rate Limiting
-RATE_LIMIT_PER_MINUTE=60
-```
-
----
-
-## 🚢 Deployment
-
-### Render.com (Recommended)
-
-1. **Fork/clone the repository**
-2. **Connect to Render.com**
-3. **Create new Web Service**
-4. **Configure**:
-   - Build Command: `pip install -r requirements.txt && python db_init.py`
-   - Start Command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-5. **Add environment variables**
-6. **Deploy!**
-
-The `render.yaml` file is pre-configured for easy deployment.
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-RUN python db_init.py
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-```bash
-docker build -t ibc-play .
-docker run -p 8000:8000 ibc-play
-```
-
----
+-----
 
 ## 🧪 Testing
 
+### Manual Testing
+
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio httpx
+# Run backend tests
+pytest tests/
 
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=. --cov-report=html
+# Test specific endpoint
+curl http://localhost:8000/health
 ```
 
----
+### Load Testing
 
-## 📈 Future Enhancements
+```bash
+# Using Apache Bench
+ab -n 1000 -c 10 http://localhost:8000/crypto/prices
+```
 
-- [ ] Live sports betting with real odds feeds
-- [ ] WebSocket support for real-time updates
-- [ ] More casino games (Baccarat, Poker, etc.)
-- [ ] Leaderboards and achievements
-- [ ] Social features (friend bets, chat)
-- [ ] Mobile app (React Native)
-- [ ] Admin dashboard
-- [ ] KYC/AML compliance integration
-- [ ] Payment gateway integration
-- [ ] Multi-language support
-
----
+-----
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome! Please follow these steps:
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+1. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+1. Push to the branch (`git push origin feature/AmazingFeature`)
+1. Open a Pull Request
 
----
+### Development Guidelines
+
+- Follow PEP 8 for Python code
+- Add docstrings to functions
+- Write tests for new features
+- Update documentation
+
+-----
+
+## 📝 Roadmap
+
+- [ ] Add more casino games (Baccarat, Poker)
+- [ ] Implement live sports betting odds
+- [ ] Add chat system
+- [ ] Mobile app (React Native)
+- [ ] Multi-language support
+- [ ] Advanced analytics dashboard
+- [ ] Social features (leaderboards, achievements)
+- [ ] Payment gateway integration
+
+-----
+
+## ⚠️ Disclaimer
+
+**This is a demonstration project for educational purposes only.**
+
+- Not licensed for real-money gambling
+- Requires proper licensing and compliance for commercial use
+- No real cryptocurrency transactions
+- Users must comply with local gambling laws
+
+-----
 
 ## 📄 License
 
-This project is for educational purposes. Not licensed for commercial use without proper gambling licenses and compliance.
+This project is licensed under the MIT License - see the <LICENSE> file for details.
 
----
+-----
 
-## ⚠️ Important Notes
+## 🙏 Acknowledgments
 
-### Legal Compliance
-- **Gambling Regulations**: Ensure compliance with local gambling laws
-- **Licensing**: Obtain necessary licenses before real-money operations
-- **Age Verification**: Implement age verification (18+/21+)
-- **Responsible Gaming**: Add self-exclusion and limit-setting features
-- **AML/KYC**: Implement anti-money laundering checks
+- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
+- [CoinGecko](https://www.coingecko.com/) - Crypto price API
+- [React](https://reactjs.org/) - UI library
+- [Tailwind CSS](https://tailwindcss.com/) - CSS framework
+- [Render](https://render.com/) - Hosting platform
 
-### Security Considerations
-- **Change SECRET_KEY**: Use a strong, random 32+ character key in production
-- **HTTPS Only**: Always use HTTPS in production
-- **Rate Limiting**: Adjust based on your infrastructure
-- **Input Validation**: All inputs are validated, but review for your use case
-- **SQL Injection**: Using parameterized queries throughout
-- **XSS Protection**: Frontend should sanitize all user inputs
-
-### Performance
-- **Database**: Consider PostgreSQL for production (included in render.yaml)
-- **Caching**: Redis recommended for production (price cache, sessions)
-- **CDN**: Use CDN for static assets
-- **Load Balancing**: Scale horizontally with multiple instances
-
----
+-----
 
 ## 📞 Support
 
 - **Issues**: [GitHub Issues](https://github.com/Scar4400/ibc-play/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/Scar4400/ibc-play/discussions)
+- **Email**: support@ibcplay.com
 
----
+-----
 
-**Built with ❤️ using FastAPI, SQLite, and CoinGecko API**
+## 🌟 Star History
+
+If you find this project helpful, please consider giving it a ⭐!
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Scar4400/ibc-play&type=Date)](https://star-history.com/#Scar4400/ibc-play&Date)
+
+-----
+
+<div align="center">
+
+**Made with ❤️ by the IBC Play Team**
+
+[Website](https://ibcplay.com) · [Documentation](https://docs.ibcplay.com) · [Demo](https://demo.ibcplay.com)
+
+</div>
