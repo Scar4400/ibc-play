@@ -2,30 +2,45 @@ services:
   - type: web
     name: ibc-play-backend
     env: python
-    plan: free  # Optimize for free tier; upgrade for persistence
-    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    region: oregon
+    plan: free
+    branch: main
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+      python db_init.py
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
     envVars:
       - key: SECRET_KEY
-        generateValue: true  # Auto-generate secure key
+        generateValue: true
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 10080
       - key: DATABASE_URL
         fromDatabase:
           name: ibc-play-db
-          property: connectionString  # Use Render Postgres for persistence (free tier limited)
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: ibc-play-redis
-          property: connectionString  # Optional Redis add-on
+          property: connectionString
       - key: COINGECKO_API_URL
         value: https://api.coingecko.com/api/v3
-      - key: PYTHON_VERSION
-        value: 3.11.0
-    disk:  # For SQLite (paid tier only; free has ephemeral storage)
-      name: data
-      mountPath: /data
-      sizeGB: 1  # Note: Free tier - use cloud DB instead
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: 60
+      - key: HOUSE_EDGE
+        value: 0.02
+      - key: MIN_BET_AMOUNT
+        value: 1.0
+      - key: MAX_BET_AMOUNT
+        value: 10000.0
+      - key: LOG_LEVEL
+        value: INFO
+    healthCheckPath: /health
+    autoDeploy: true
+
 databases:
   - name: ibc-play-db
-    plan: free  # Render Postgres free tier
+    databaseName: ibc_play
+    user: ibc_play_user
+    plan: free
+    region: oregon
