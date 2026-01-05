@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>IB Crypto Play — Demo</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+      :root {
+        --primary: #0ea5e9;
+        --accent: #f97316;
+        --bg1: linear-gradient(180deg,#071029 0%, #071829 100%);
+        --card: rgba(255,255,255,0.03);
+        --muted: #94a3b8;
+      }
+      body { background: var(--bg1); color: #e6eef8; min-height: 100vh; }
+      .card { background: var(--card); border: 1px solid rgba(255,255,255,0.04); }
+      .btn-primary { background: var(--primary); border-color: var(--primary); }
+      .accent { color: var(--accent); }
+      .small-muted { color: var(--muted); font-size: 0.9rem; }
+      .logo { font-weight: 700; letter-spacing: .6px; }
+      .wallet-bal { font-size: 1.3rem; font-weight: 700; }
+      pre { color: #cfe9ff; background: transparent; border: none; }
+      @media (max-width: 768px) {
+        .d-md-flex { display: block !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container py-4">
+      <div class="d-flex align-items-center mb-4">
+        <h3 class="logo me-3">IB Crypto Play</h3>
+        <div class="small-muted">Demo — FastAPI + SQLite/Postgres + CoinGecko</div>
+      </div>
+
+      <div id="root"></div>
+
+      <footer class="text-center small-muted mt-4">This demo is for development only. Do not use with real money.</footer>
+    </div>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <script>
+      const {useState, useEffect} = React;
+      const API_BASE = window.location.origin;
+
+      async function safeFetch(path, opts = {}) {
+        const res = await fetch(API_BASE + path, opts);
+        let text = await res.text();
+        try {
+          const json = JSON.parse(text);
+          if (!res.ok) throw new Error(json.detail || JSON.stringify(json));
+          return json;
+        } catch (e) {
+          if (!res.ok) throw new Error(text || res.statusText);
+          return JSON.parse(text);
+        }
+      }
+
+      function App(){
+        const [token, setToken] = useState(localStorage.getItem("token") || "");
+        const [user, setUser] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [message, setMessage] = useState("");
+        const [form, setForm] = useState({username:"", password:""});
+        const [deposit, setDeposit] = useState(5);
+        const [prices, setPrices] = useState({});
+        const [betAmt, setBetAmt] = useState(5);
+
+        useEffect(()=>{
+          if (token) {
+            localStorage.setItem("token", token);
+            loadProfile();
+          } else {
+            localStorage.removeItem("token");
+            setUser(null);
+          }
+        }, [token]);
+
+        async function loadProfile(){
+          try {
+            const data = await safeFetch('/me', { headers: { Authorization: "Bearer " + token } });
+            setUser(data);
+          } catch (err) {
+            setMessage("Profile load error: " + err.message);
+            setToken("");
+          }
+        }
+
+        async function register(){
+          setMessage(""); setLoading(true);
+          try {
+            const res = await safeFetch("/register", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(form) });
+            setToken(res.access_token);
+            setMessage("Registered — logged in.");
+          } catch (err) {
+            setMessage("Register error: " + err.message);
+          } finally { setLoading(false); }
+        }
+
+        async function login(){
+          setMessage(""); setLoading(true);
+          try {
+            const fd = new FormData();
+            fd.append("username", form.username);
+            fd.append("password", form.password);
+            const r = await fetch("/token", { method: "POST", body: fd });
+            if (!r.ok) { const t = await r.text(); throw new Error(t); }
+            const json = await r.json();
+            setToken(json.access_token);
+            setMessage("Logged in.");
+          } catch (err) { setMessage("Login error: " + err.message); } finally { setLoading(false); }
+        }
+
+        async function depositUSD(){
+          setMessage(""); setLoading(true);
+          try {
+            const r = await safeFetch("/deposit", { method: "POST", headers: { "Content-Type":"application/json", Authorization: "Bearer " + token }, body: JSON.stringify({usd_amount: Number(deposit)})});
+            setMessage("Deposited: $" + Number(deposit).toFixed(2) + ". Balance: $" + Number(r.balance_usd).toFixed(2));
+            loadProfile();
+          } catch (err) { setMessage("Deposit error: " + err.message); } finally { setLoading(false); }
+        }
+
+        async function getPrice(ticker){
+          try {
+            const r = await safeFetch("/price/" + ticker);
+            setPrices(prev => ({...prev, [ticker]: r.price_usd}));
+          } catch (err) {
+            setMessage("Price error: " + err.message);
+          }
+        }
+
+        async function spinSlot(){
+          setMessage(""); setLoading(true);
+          try {
+            const r = await safeFetch("/casino/slots/spin", { method: "POST", headers: { "Content-Type":"application/json", Authorization: "Bearer " + token }, body: JSON.stringify({usd_amount: 1})});
+            setMessage("Spin: " + r.result + " — payout $" + r.payout);
+            loadProfile();
+          } catch (err) { setMessage("Spin error: " + err.message); } finally { setLoading(false); }
+        }
+
+        async function placeBet(){
+          setMessage(""); setLoading(true);
+          try {
+            const payload = { game: "demo-match", amount_usd: Number(betAmt), odds: 1.8 };
+            const r = await safeFetch("/bets/place", { method: "POST", headers: { "Content-Type":"application/json", Authorization: "Bearer " + token }, body: JSON.stringify(payload) });
+            setMessage("Bet placed: id " + r.bet_id);
+            // auto settle for demo
+            await new Promise(r => setTimeout(r, 400));
+            await safeFetch("/bets/settle/" + r.bet_id + "?outcome=random", { method: "POST", headers: { Authorization: "Bearer " + token } });
+            loadProfile();
+          } catch (err) { setMessage("Bet error: " + err.message); } finally { setLoading(false); }
+        }
+
+        return React.createElement("div", {className: "row g-3"},
+          React.createElement("div", {className: "col-md-4"},
+            React.createElement("div", {className: "card p-3 mb-3"},
+              React.createElement("h5", null, "Account"),
+              user ? React.createElement("div", null,
+                React.createElement("div", {className:"wallet-bal mb-2"}, "USD $" + (user.balance_usd||0).toFixed(2)),
+                React.createElement("div", {className:"small-muted mb-2"}, "User: " + user.username),
+                React.createElement("button", {className:"btn btn-outline-light mt-2", onClick: ()=>{ setToken(''); setMessage('Logged out'); }}, "Logout")
+              ) : React.createElement("div", null,
+                React.createElement("input", {className:"form-control mb-2", placeholder:"username", value: form.username, onChange: (e)=> setForm({...form, username: e.target.value})}),
+                React.createElement("input", {type:"password", className:"form-control mb-2", placeholder:"password", value: form.password, onChange: (e)=> setForm({...form, password: e.target.value})}),
+                React.createElement("div", null,
+                  React.createElement("button", {className:"btn btn-primary me-2", onClick: register, disabled: loading}, "Register"),
+                  React.createElement("button", {className:"btn btn-outline-light", onClick: login, disabled: loading}, "Login")
+                )
+              )
+            )
+          ),
+          React.createElement("div", {className: "col-md-8"},
+            React.createElement("div", {className: "card p-3 mb-3"},
+              React.createElement("h5", null, "Market"),
+              React.createElement("div", {className:"d-md-flex align-items-center"},
+                ["BTC","ETH","SOL","BNB"].map(t => React.createElement("button", {className:"btn btn-sm btn-primary me-2", onClick: ()=>getPrice(t)}, t)),
+                React.createElement("div", {className:"ms-auto d-flex align-items-center"},
+                  React.createElement("input", {type:"number", className:"form-control me-2", style:{width:'120px'}, value: deposit, onChange: (e)=>setDeposit(e.target.value)}),
+                  React.createElement("button", {className:"btn btn-success me-2", onClick: depositUSD, disabled: !token}, "Deposit"),
+                  React.createElement("button", {className:"btn btn-warning", onClick: spinSlot, disabled: !token}, "Spin $1")
+                )
+              ),
+              React.createElement("div", {className:"mt-2"},
+                React.createElement("pre", null, "Prices: " + JSON.stringify(prices))
+              )
+            ),
+            React.createElement("div", {className:"card p-3"},
+              React.createElement("h5", null, "Bet & Crypto Demo"),
+              React.createElement("div", null,
+                React.createElement("div", {className:"mb-2"}, React.createElement("input", {className:"form-control w-50 d-inline me-2", value: betAmt, onChange: (e)=>setBetAmt(e.target.value)}),
+                React.createElement("button", {className:"btn btn-outline-light", onClick: placeBet, disabled: !token}, "Place Bet")),
+                React.createElement("p", {className:"mt-2 small-muted"}, "Demo: deposit 0.001 BTC below (will credit USD based on current price)"),
+                React.createElement("div", null,
+                  React.createElement("button", {className:"btn btn-sm btn-primary me-2", onClick: async ()=>{
+                    try {
+                      const r = await safeFetch("/crypto/deposit", { method: "POST", headers: {"Content-Type":"application/json", Authorization: "Bearer " + token}, body: JSON.stringify({asset:"BTC", amount:0.001})});
+                      setMessage("Crypto deposit OK — credited: $" + Number(r.usd_credited).toFixed(2));
+                      loadProfile();
+                    } catch (e) { setMessage("Crypto deposit error: " + e.message); }
+                  }, disabled: !token }, "Deposit 0.001 BTC")
+                )
+              )
+            )
+          ),
+          React.createElement("div", {className:"col-12 mt-3"},
+            React.createElement("div", {className:"card p-3"},
+              React.createElement("h6", null, "Messages"),
+              React.createElement("div", null, React.createElement("p", null, message || "Ready"))
+            )
+          )
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+    </script>
+  </body>
+</html>
