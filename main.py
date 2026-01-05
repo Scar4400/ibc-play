@@ -1,435 +1,927 @@
-# main.py (fully completed and fixed)
+"""
+IBC Play - Crypto Sports Betting & Casino Platform
+Complete FastAPI backend with authentication, wallet management, betting, and casino games.
+"""
+
 import os
-import time
-import asyncio
-import random
+import json
 import logging
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, List, Dict, Any
+import random
 
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
-import jwt
-from jwt import PyJWTError
-
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
-from sqlalchemy.exc import SQLAlchemyError
-
-import httpx
+from jose import JWTError, jwt
 from dotenv import load_dotenv
-from loguru import logger as loguru_logger  # Enhanced logging
-
-# Optional Redis & SlowAPI
-import redis.asyncio as aioredis
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
-from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
-# Load env
+from db_init import get_connection, init_database
+from crypto_prices import crypto_service, get_crypto_price, is_currency_supported
+
+# Load environment variables
 load_dotenv()
 
-# Config (all from env)
-SECRET_KEY = os.environ["SECRET_KEY"]
-ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-JWT_EXP_SECONDS = int(os.getenv("JWT_EXP_SECONDS", 3600))
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./app.db")
-COINGECKO_API_URL = os.getenv("COINGECKO_API_URL", "https://api.coingecko.com/api/v3")
-REDIS_URL = os.getenv("REDIS_URL")
-RATE_LIMIT = os.getenv("RATE_LIMIT", "60/m")  # e.g., 60/minute
+# Configuration
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production-minimum-32-characters-long")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "10080"))
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
-# Logging setup (file + console)
-loguru_logger.add("app.log", rotation="500 MB", level="INFO")
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# SQLAlchemy
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+# Initialize database on startup
+init_database()
 
-# Password hashing
+# FastAPI app
+app = FastAPI(
+    title="IBC Play API",
+    description="Crypto Sports Betting & Casino Platform",
+    version="1.0.0"
+)
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict this
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
-# Redis init (for limiting and caching)
-redis_client = None
-limiter = None
-if REDIS_URL:
-    try:
-        redis_client = aioredis.from_url(REDIS_URL, decode_responses=True)
-        limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL)
-        loguru_logger.info("Redis and SlowAPI initialized.")
-    except Exception as e:
-        loguru_logger.warning(f"Redis init failed: {e}. Using in-memory fallback.")
+# ===========================
+# PYDANTIC MODELS
+# ===========================
 
-# In-memory fallback for rate limiting
-_bucket_store: Dict[str, dict] = {}
-_bucket_lock = asyncio.Lock()
-
-async def allow_request_in_memory(ip: str) -> bool:
-    now = time.time()
-    window = 60
-    async with _bucket_lock:
-        bucket = _bucket_store.get(ip, {"count": 0, "ts": now})
-        elapsed = now - bucket["ts"]
-        if elapsed > window:
-            bucket = {"count": 1, "ts": now}
-        elif bucket["count"] >= int(RATE_LIMIT.split("/")[0]):
-            return False
-        else:
-            bucket["count"] += 1
-        _bucket_store[ip] = bucket
-        return True
-
-# DB Models (unchanged but ensured)
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(128), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(256), nullable=False)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    wallet = relationship("Wallet", back_populates="user", uselist=False)
-    transactions = relationship("Transaction", back_populates="user")
-    bets = relationship("Bet", back_populates="user")
-
-class Wallet(Base):
-    __tablename__ = "wallets"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    balance_usd = Column(Float, default=0.0)
-    user = relationship("User", back_populates="wallet")
-    holdings = relationship("CryptoHolding", back_populates="wallet")
-
-class CryptoHolding(Base):
-    __tablename__ = "crypto_holdings"
-    id = Column(Integer, primary_key=True, index=True)
-    wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=False)
-    asset = Column(String(32), nullable=False)
-    amount = Column(Float, default=0.0)
-    wallet = relationship("Wallet", back_populates="holdings")
-
-class Transaction(Base):
-    __tablename__ = "transactions"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    type = Column(String(50))
-    amount_usd = Column(Float, default=0.0)
-    metadata = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    user = relationship("User", back_populates="transactions")
-
-class Bet(Base):
-    __tablename__ = "bets"
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    game = Column(String(100))
-    amount_usd = Column(Float, default=0.0)
-    odds = Column(Float, default=1.0)
-    result = Column(String(50), default="pending")
-    payout = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    user = relationship("User", back_populates="bets")
-
-# Pydantic Schemas (added validation)
 class UserCreate(BaseModel):
-    username: str = Field(min_length=3, max_length=50)
-    password: str = Field(min_length=8)
+    username: str = Field(..., min_length=3, max_length=50)
+    email: EmailStr
+    password: str = Field(..., min_length=6)
+    full_name: Optional[str] = None
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
 
 class Token(BaseModel):
     access_token: str
-    token_type: str = "bearer"
-    expires_in: int
+    token_type: str
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: Optional[str]
+    is_active: bool
+    created_at: str
+
+class WalletBalance(BaseModel):
+    currency: str
+    balance: float
+    locked_balance: float
+    usd_value: Optional[float] = None
 
 class DepositRequest(BaseModel):
-    usd_amount: float = Field(gt=0, le=10000)  # Arbitrary limits for demo
-
-class CryptoDepositRequest(BaseModel):
-    asset: str = Field(pattern="^(BTC|ETH|SOL|BNB)$")
-    amount: float = Field(gt=0)
+    currency: str
+    amount: float = Field(..., gt=0)
 
 class WithdrawRequest(BaseModel):
-    usd_amount: float = Field(gt=0)
+    currency: str
+    amount: float = Field(..., gt=0)
 
 class TransferRequest(BaseModel):
-    to_username: str
-    usd_amount: float = Field(gt=0)
+    from_currency: str
+    to_currency: str
+    amount: float = Field(..., gt=0)
 
-class BetRequest(BaseModel):
-    game: str = Field(min_length=1)
-    amount_usd: float = Field(gt=0)
-    odds: float = Field(gt=1.0)
+class BetCreate(BaseModel):
+    bet_type: str
+    sport: Optional[str] = None
+    event_name: str
+    selection: str
+    odds: float = Field(..., gt=1.0)
+    stake_amount: float = Field(..., gt=0)
+    stake_currency: str = "USD"
 
 class CasinoPlayRequest(BaseModel):
-    game: str = "slots"  # For now, only slots
-    amount_usd: float = Field(gt=0)
+    game: str
+    bet_amount: float = Field(..., gt=0)
+    bet_currency: str = "USD"
+    bet_options: Optional[Dict[str, Any]] = None
 
-# Auth Utils
+# ===========================
+# AUTHENTICATION FUNCTIONS
+# ===========================
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify password against hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
 def get_password_hash(password: str) -> str:
+    """Generate password hash."""
     return pwd_context.hash(password)
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-
-def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create JWT access token."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(seconds=JWT_EXP_SECONDS))
-    to_encode["exp"] = expire
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return encoded_jwt
 
-def decode_token(token: str) -> dict:
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+    """Get current authenticated user from JWT token."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except PyJWTError as e:
-        loguru_logger.warning(f"JWT decode error: {e}")
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    except SQLAlchemyError as e:
-        loguru_logger.error(f"DB error: {e}")
-        raise HTTPException(status_code=500, detail="Database issue")
-    finally:
-        db.close()
-
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    payload = decode_token(token)
-    username: str = payload.get("sub")
-    if username is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.username == username).first()
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    user = cursor.fetchone()
+    conn.close()
+    
     if user is None:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
+        raise credentials_exception
+    
+    return dict(user)
 
-# CoinGecko Integration (enhanced with fallback simulation)
-COIN_MAP = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "BNB": "binancecoin"}
-PRICE_CACHE_TTL = 30
-_price_cache: Dict[str, dict] = {}
-_price_lock = asyncio.Lock()
-_api_fail_count = 0
+# ===========================
+# DATABASE HELPER FUNCTIONS
+# ===========================
 
-async def get_price_usd(asset: str) -> float:
-    global _api_fail_count
-    asset_id = COIN_MAP.get(asset.upper())
-    if not asset_id:
-        raise HTTPException(400, "Invalid asset")
-    now = time.time()
-    key = f"price:{asset_id}"
+def get_user_by_username(username: str) -> Optional[dict]:
+    """Get user by username."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user) if user else None
 
-    # Check cache (Redis first)
-    if redis_client:
-        try:
-            cached = await redis_client.get(key)
-            if cached:
-                ts, price = cached.split(":")
-                if now - float(ts) < PRICE_CACHE_TTL:
-                    return float(price)
-        except Exception as e:
-            loguru_logger.warning(f"Redis cache error: {e}")
+def get_user_wallet(user_id: int, currency: str) -> Optional[dict]:
+    """Get user's wallet for specific currency."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM wallets WHERE user_id = ? AND currency = ?",
+        (user_id, currency)
+    )
+    wallet = cursor.fetchone()
+    conn.close()
+    return dict(wallet) if wallet else None
 
-    async with _price_lock:
-        cached = _price_cache.get(key)
-        if cached and now - cached["ts"] < PRICE_CACHE_TTL:
-            return cached["price"]
+def update_wallet_balance(user_id: int, currency: str, amount_change: float) -> bool:
+    """Update wallet balance atomically."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get current balance
+        cursor.execute(
+            "SELECT balance FROM wallets WHERE user_id = ? AND currency = ?",
+            (user_id, currency)
+        )
+        result = cursor.fetchone()
+        
+        if not result:
+            # Create wallet if doesn't exist
+            cursor.execute(
+                "INSERT INTO wallets (user_id, currency, balance) VALUES (?, ?, ?)",
+                (user_id, currency, max(0, amount_change))
+            )
+        else:
+            new_balance = result["balance"] + amount_change
+            if new_balance < 0:
+                raise ValueError("Insufficient balance")
+            
+            cursor.execute(
+                "UPDATE wallets SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND currency = ?",
+                (new_balance, user_id, currency)
+            )
+        
+        conn.commit()
+        return True
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Failed to update wallet balance: {str(e)}")
+        raise
+    finally:
+        conn.close()
 
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(f"{COINGECKO_API_URL}/simple/price", params={"ids": asset_id, "vs_currencies": "usd"})
-                r.raise_for_status()
-                price = r.json().get(asset_id, {}).get("usd")
-                if not price or price <= 0:
-                    raise ValueError("Invalid price")
-                _price_cache[key] = {"ts": now, "price": price}
-                if redis_client:
-                    await redis_client.set(key, f"{now}:{price}", ex=PRICE_CACHE_TTL * 2)
-                _api_fail_count = 0
-                return price
-        except Exception as e:
-            loguru_logger.warning(f"CoinGecko error: {e}")
-            _api_fail_count += 1
-            if _api_fail_count > 3 or key not in _price_cache:
-                # Fallback simulation (creative: mild random fluctuation)
-                simulated = random.uniform(0.9, 1.1) * (cached["price"] if cached else 1.0)
-                _price_cache[key] = {"ts": now, "price": simulated}
-                loguru_logger.info(f"Using simulated price for {asset}: {simulated}")
-                return simulated
-            return _price_cache[key]["price"]
+def record_transaction(user_id: int, tx_type: str, currency: str, amount: float, 
+                      status: str = "completed", description: str = "", 
+                      reference_id: str = None, metadata: dict = None) -> int:
+    """Record a financial transaction."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Calculate USD value
+        if currency == "USD":
+            usd_value = amount
+        else:
+            price = crypto_service._get_from_cache(currency)
+            usd_value = amount * price if price else None
+        
+        cursor.execute('''
+        INSERT INTO transactions (user_id, transaction_type, currency, amount, usd_value, 
+                                 status, description, reference_id, metadata)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, tx_type, currency, amount, usd_value, status, description,
+              reference_id, json.dumps(metadata) if metadata else None))
+        
+        tx_id = cursor.lastrowid
+        conn.commit()
+        return tx_id
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Failed to record transaction: {str(e)}")
+        raise
+    finally:
+        conn.close()
 
-# App Init
-app = FastAPI(title="IB Crypto Play")
+# ===========================
+# HEALTH & INFO ENDPOINTS
+# ===========================
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "message": "IBC Play API",
+        "version": "1.0.0",
+        "status": "running"
+    }
 
-# Static for demo
-app.mount("/demo", StaticFiles(directory=".", html=True), name="demo")
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment platforms."""
+    try:
+        # Test database connection
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
+        conn.close()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
+    
+    try:
+        # Test crypto API
+        price = await crypto_service.get_price("BTC")
+        crypto_api_status = "reachable"
+    except Exception as e:
+        crypto_api_status = f"degraded: {str(e)}"
+    
+    return {
+        "status": "ok",
+        "db": db_status,
+        "crypto_api": crypto_api_status,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
-# Limiter middleware
-if limiter:
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-    app.add_middleware(SlowAPIMiddleware)
-else:
-    @app.middleware("http")
-    async def in_memory_limiter(request: Request, call_next):
-        if request.url.path == "/health":
-            return await call_next(request)
-        ip = get_remote_address(request)
-        if not await allow_request_in_memory(ip):
-            return Response("Rate limit exceeded", status_code=429)
-        return await call_next(request)
+@app.get("/prices")
+@limiter.limit("30/minute")
+async def get_crypto_prices(request: Request):
+    """Get current cryptocurrency prices."""
+    try:
+        prices = await crypto_service.get_multiple_prices(["BTC", "ETH", "SOL", "BNB"])
+        return {
+            "prices": prices,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to fetch prices: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch prices")
 
-# Endpoints
-@app.get("/health", tags=["system"])
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def health(request: Request):
-    return {"status": "ok", "db": engine.connect().closed == False, "time": datetime.utcnow().isoformat()}
+# ===========================
+# AUTHENTICATION ENDPOINTS
+# ===========================
 
-@app.post("/register", response_model=Token)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def register(user_in: UserCreate, db: Session = Depends(get_db), request: Request):
-    if db.query(User).filter(User.username == user_in.username).first():
-        raise HTTPException(400, "Username taken")
-    hashed_pw = get_password_hash(user_in.password)
-    user = User(username=user_in.username, hashed_password=hashed_pw)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    # Create wallet
-    wallet = Wallet(user_id=user.id)
-    db.add(wallet)
-    db.commit()
-    access_token = create_access_token({"sub": user.username})
-    loguru_logger.info(f"User registered: {user.username}")
-    return Token(access_token=access_token, expires_in=JWT_EXP_SECONDS)
+@app.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+async def register(user: UserCreate, request: Request):
+    """Register a new user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Check if user exists
+        cursor.execute("SELECT id FROM users WHERE username = ? OR email = ?", 
+                      (user.username, user.email))
+        if cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Username or email already registered")
+        
+        # Create user
+        hashed_password = get_password_hash(user.password)
+        cursor.execute('''
+        INSERT INTO users (username, email, hashed_password, full_name, is_active, is_verified)
+        VALUES (?, ?, ?, ?, 1, 0)
+        ''', (user.username, user.email, hashed_password, user.full_name))
+        
+        user_id = cursor.lastrowid
+        
+        # Create default wallets
+        for currency in ["USD", "BTC", "ETH", "SOL", "BNB"]:
+            initial_balance = 10000.0 if currency == "USD" else 0.0
+            cursor.execute('''
+            INSERT INTO wallets (user_id, currency, balance)
+            VALUES (?, ?, ?)
+            ''', (user_id, currency, initial_balance))
+        
+        conn.commit()
+        
+        # Return user data
+        cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        new_user = dict(cursor.fetchone())
+        
+        return UserResponse(
+            id=new_user["id"],
+            username=new_user["username"],
+            email=new_user["email"],
+            full_name=new_user["full_name"],
+            is_active=bool(new_user["is_active"]),
+            created_at=new_user["created_at"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Registration failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Registration failed")
+    finally:
+        conn.close()
 
 @app.post("/login", response_model=Token)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db), request: Request):
-    user = db.query(User).filter(User.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(401, "Invalid credentials")
-    access_token = create_access_token({"sub": user.username})
-    loguru_logger.info(f"User login: {user.username}")
-    return Token(access_token=access_token, expires_in=JWT_EXP_SECONDS)
+@limiter.limit("10/minute")
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), request: Request = None):
+    """Login and get JWT token."""
+    user = get_user_by_username(form_data.username)
+    
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user["is_active"]:
+        raise HTTPException(status_code=400, detail="User account is inactive")
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]},
+        expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/deposit", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def deposit(dep: DepositRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    wallet.balance_usd += dep.usd_amount
-    tx = Transaction(user_id=current_user.id, type="deposit", amount_usd=dep.usd_amount)
-    db.add(tx)
-    db.commit()
-    loguru_logger.info(f"Deposit: {dep.usd_amount} USD for {current_user.username}")
-    return {"balance": wallet.balance_usd}
+@app.get("/me", response_model=UserResponse)
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Get current user information."""
+    return UserResponse(
+        id=current_user["id"],
+        username=current_user["username"],
+        email=current_user["email"],
+        full_name=current_user["full_name"],
+        is_active=bool(current_user["is_active"]),
+        created_at=current_user["created_at"]
+    )
 
-@app.post("/crypto/deposit", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def crypto_deposit(dep: CryptoDepositRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    price = await get_price_usd(dep.asset)
-    usd_value = dep.amount * price
-    wallet = current_user.wallet
-    holding = db.query(CryptoHolding).filter(CryptoHolding.wallet_id == wallet.id, CryptoHolding.asset == dep.asset).first()
-    if not holding:
-        holding = CryptoHolding(wallet_id=wallet.id, asset=dep.asset, amount=dep.amount)
-        db.add(holding)
-    else:
-        holding.amount += dep.amount
-    wallet.balance_usd += usd_value  # Add equivalent USD for betting
-    tx = Transaction(user_id=current_user.id, type="crypto_deposit", amount_usd=usd_value, metadata=f"{dep.asset}:{dep.amount}")
-    db.add(tx)
-    db.commit()
-    loguru_logger.info(f"Crypto deposit: {dep.amount} {dep.asset} (${usd_value}) for {current_user.username}")
-    return {"balance": wallet.balance_usd, "holding": holding.amount}
+# ===========================
+# WALLET ENDPOINTS
+# ===========================
 
-@app.post("/withdraw", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def withdraw(wd: WithdrawRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    if wallet.balance_usd < wd.usd_amount:
-        raise HTTPException(400, "Insufficient balance")
-    wallet.balance_usd -= wd.usd_amount
-    tx = Transaction(user_id=current_user.id, type="withdraw", amount_usd=-wd.usd_amount)
-    db.add(tx)
-    db.commit()
-    loguru_logger.info(f"Withdraw: {wd.usd_amount} USD for {current_user.username}")
-    return {"balance": wallet.balance_usd}
+@app.get("/wallet")
+async def get_wallet(current_user: dict = Depends(get_current_user)):
+    """Get all user wallet balances with USD values."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("SELECT * FROM wallets WHERE user_id = ?", (current_user["id"],))
+        wallets = [dict(row) for row in cursor.fetchall()]
+        
+        # Get current prices
+        prices = await crypto_service.get_multiple_prices(["BTC", "ETH", "SOL", "BNB"])
+        
+        # Calculate USD values
+        wallet_data = []
+        total_usd = 0.0
+        
+        for wallet in wallets:
+            currency = wallet["currency"]
+            balance = wallet["balance"]
+            
+            if currency == "USD":
+                usd_value = balance
+            else:
+                usd_value = balance * prices.get(currency, 0.0)
+            
+            total_usd += usd_value
+            
+            wallet_data.append({
+                "currency": currency,
+                "balance": balance,
+                "locked_balance": wallet["locked_balance"],
+                "usd_value": round(usd_value, 2)
+            })
+        
+        return {
+            "wallets": wallet_data,
+            "total_usd_value": round(total_usd, 2),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    finally:
+        conn.close()
 
-@app.post("/transfer", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def transfer(tr: TransferRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    if wallet.balance_usd < tr.usd_amount:
-        raise HTTPException(400, "Insufficient balance")
-    to_user = db.query(User).filter(User.username == tr.to_username).first()
-    if not to_user:
-        raise HTTPException(404, "Recipient not found")
-    to_wallet = to_user.wallet
-    wallet.balance_usd -= tr.usd_amount
-    to_wallet.balance_usd += tr.usd_amount
-    tx_out = Transaction(user_id=current_user.id, type="transfer_out", amount_usd=-tr.usd_amount, metadata=tr.to_username)
-    tx_in = Transaction(user_id=to_user.id, type="transfer_in", amount_usd=tr.usd_amount, metadata=current_user.username)
-    db.add_all([tx_out, tx_in])
-    db.commit()
-    loguru_logger.info(f"Transfer: {tr.usd_amount} USD from {current_user.username} to {tr.to_username}")
-    return {"balance": wallet.balance_usd}
+@app.post("/deposit")
+@limiter.limit("20/minute")
+async def deposit(
+    request: Request,
+    deposit_req: DepositRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Deposit funds to wallet."""
+    if not is_currency_supported(deposit_req.currency):
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    
+    try:
+        # Get current price if crypto
+        if deposit_req.currency != "USD":
+            price = await get_crypto_price(deposit_req.currency)
+        else:
+            price = 1.0
+        
+        # Update wallet
+        update_wallet_balance(current_user["id"], deposit_req.currency, deposit_req.amount)
+        
+        # Record transaction
+        tx_id = record_transaction(
+            user_id=current_user["id"],
+            tx_type="deposit",
+            currency=deposit_req.currency,
+            amount=deposit_req.amount,
+            status="completed",
+            description=f"Deposit {deposit_req.amount} {deposit_req.currency}",
+            metadata={"price_usd": price}
+        )
+        
+        return {
+            "success": True,
+            "transaction_id": tx_id,
+            "currency": deposit_req.currency,
+            "amount": deposit_req.amount,
+            "message": f"Successfully deposited {deposit_req.amount} {deposit_req.currency}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Deposit failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Deposit failed")
 
-@app.post("/bets", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def place_bet(bet_in: BetRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    if wallet.balance_usd < bet_in.amount_usd:
-        raise HTTPException(400, "Insufficient balance")
-    wallet.balance_usd -= bet_in.amount_usd
-    bet = Bet(user_id=current_user.id, game=bet_in.game, amount_usd=bet_in.amount_usd, odds=bet_in.odds)
-    db.add(bet)
-    db.commit()
-    # Simulate settlement (creative: 50% win chance for demo)
-    if random.random() > 0.5:
-        payout = bet_in.amount_usd * bet_in.odds
-        wallet.balance_usd += payout
-        bet.result = "win"
-        bet.payout = payout
-    else:
-        bet.result = "loss"
-        bet.payout = 0
-    db.commit()
-    loguru_logger.info(f"Bet placed: {bet_in.game} ${bet_in.amount_usd} for {current_user.username} - Result: {bet.result}")
-    return {"result": bet.result, "payout": bet.payout, "balance": wallet.balance_usd}
+@app.post("/withdraw")
+@limiter.limit("10/minute")
+async def withdraw(
+    request: Request,
+    withdraw_req: WithdrawRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Withdraw funds from wallet."""
+    if not is_currency_supported(withdraw_req.currency):
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    
+    try:
+        # Check balance
+        wallet = get_user_wallet(current_user["id"], withdraw_req.currency)
+        if not wallet or wallet["balance"] < withdraw_req.amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
+        
+        # Get current price
+        if withdraw_req.currency != "USD":
+            price = await get_crypto_price(withdraw_req.currency)
+        else:
+            price = 1.0
+        
+        # Update wallet
+        update_wallet_balance(current_user["id"], withdraw_req.currency, -withdraw_req.amount)
+        
+        # Record transaction
+        tx_id = record_transaction(
+            user_id=current_user["id"],
+            tx_type="withdrawal",
+            currency=withdraw_req.currency,
+            amount=withdraw_req.amount,
+            status="completed",
+            description=f"Withdraw {withdraw_req.amount} {withdraw_req.currency}",
+            metadata={"price_usd": price}
+        )
+        
+        return {
+            "success": True,
+            "transaction_id": tx_id,
+            "currency": withdraw_req.currency,
+            "amount": withdraw_req.amount,
+            "message": f"Successfully withdrew {withdraw_req.amount} {withdraw_req.currency}"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Withdrawal failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Withdrawal failed")
 
-@app.post("/casino/play", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def casino_play(play_in: CasinoPlayRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    if wallet.balance_usd < play_in.amount_usd:
-        raise HTTPException(400, "Insufficient balance")
-    wallet.balance_usd -= play_in.amount_usd
-    # Creative slots simulation: 3 reels, win if match (RNG)
-    reels = [random.choice(["cherry", "lemon", "bar", "7"]) for _ in range(3)]
-    if len(set(reels)) == 1:
-        payout = play_in.amount_usd * random.uniform(2, 10)  # Variable payout
-        wallet.balance_usd += payout
-        result = "win"
-    else:
-        payout = 0
-        result = "loss"
-    bet = Bet(user_id=current_user.id, game="slots", amount_usd=play_in.amount_usd, odds=0, result=result, payout=payout)
-    db.add(bet)
-    db.commit()
-    loguru_logger.info(f"Casino play: slots ${play_in.amount_usd} for {current_user.username} - Reels: {reels} - Result: {result}")
-    return {"reels": reels, "result": result, "payout": payout, "balance": wallet.balance_usd}
+@app.post("/transfer")
+@limiter.limit("15/minute")
+async def transfer(
+    request: Request,
+    transfer_req: TransferRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Transfer/convert between currencies."""
+    if not is_currency_supported(transfer_req.from_currency) or not is_currency_supported(transfer_req.to_currency):
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    
+    if transfer_req.from_currency == transfer_req.to_currency:
+        raise HTTPException(status_code=400, detail="Cannot transfer to same currency")
+    
+    try:
+        # Check balance
+        wallet = get_user_wallet(current_user["id"], transfer_req.from_currency)
+        if not wallet or wallet["balance"] < transfer_req.amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
+        
+        # Get prices
+        from_price = 1.0 if transfer_req.from_currency == "USD" else await get_crypto_price(transfer_req.from_currency)
+        to_price = 1.0 if transfer_req.to_currency == "USD" else await get_crypto_price(transfer_req.to_currency)
+        
+        # Calculate conversion
+        usd_value = transfer_req.amount * from_price
+        to_amount = usd_value / to_price
+        
+        # Execute transfer
+        update_wallet_balance(current_user["id"], transfer_req.from_currency, -transfer_req.amount)
+        update_wallet_balance(current_user["id"], transfer_req.to_currency, to_amount)
+        
+        # Record transactions
+        record_transaction(
+            user_id=current_user["id"],
+            tx_type="transfer_out",
+            currency=transfer_req.from_currency,
+            amount=transfer_req.amount,
+            description=f"Transfer to {transfer_req.to_currency}",
+            metadata={"to_currency": transfer_req.to_currency, "to_amount": to_amount}
+        )
+        
+        record_transaction(
+            user_id=current_user["id"],
+            tx_type="transfer_in",
+            currency=transfer_req.to_currency,
+            amount=to_amount,
+            description=f"Transfer from {transfer_req.from_currency}",
+            metadata={"from_currency": transfer_req.from_currency, "from_amount": transfer_req.amount}
+        )
+        
+        return {
+            "success": True,
+            "from_currency": transfer_req.from_currency,
+            "from_amount": transfer_req.amount,
+            "to_currency": transfer_req.to_currency,
+            "to_amount": round(to_amount, 8),
+            "exchange_rate": round(to_amount / transfer_req.amount, 8)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Transfer failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Transfer failed")
 
-@app.get("/balances", response_model=Dict)
-@limiter.limit(RATE_LIMIT) if limiter else lambda r: r
-async def get_balances(current_user: User = Depends(get_current_user), db: Session = Depends(get_db), request: Request):
-    wallet = current_user.wallet
-    holdings = {h.asset: {"amount": h.amount, "usd": h.amount * await get_price_usd(h.asset)} for h in wallet.holdings}
-    return {"usd": wallet.balance_usd, "crypto": holdings}
+@app.get("/transactions")
+async def get_transactions(
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user transaction history."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute('''
+        SELECT * FROM transactions 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC 
+        LIMIT ?
+        ''', (current_user["id"], limit))
+        
+        transactions = [dict(row) for row in cursor.fetchall()]
+        
+        return {
+            "transactions": transactions,
+            "count": len(transactions)
+        }
+        
+    finally:
+        conn.close()
+
+# ===========================
+# SPORTS BETTING ENDPOINTS
+# ===========================
+
+@app.post("/bets")
+@limiter.limit("30/minute")
+async def place_bet(
+    request: Request,
+    bet: BetCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Place a sports bet."""
+    try:
+        # Validate currency and balance
+        if not is_currency_supported(bet.stake_currency):
+            raise HTTPException(status_code=400, detail="Unsupported currency")
+        
+        wallet = get_user_wallet(current_user["id"], bet.stake_currency)
+        if not wallet or wallet["balance"] < bet.stake_amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
+        
+        # Calculate potential payout
+        potential_payout = bet.stake_amount * bet.odds
+        
+        # Deduct stake from wallet
+        update_wallet_balance(current_user["id"], bet.stake_currency, -bet.stake_amount)
+        
+        # Create bet record
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        INSERT INTO bets (user_id, bet_type, sport, event_name, selection, odds, 
+                         stake_amount, stake_currency, potential_payout, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        ''', (current_user["id"], bet.bet_type, bet.sport, bet.event_name, 
+              bet.selection, bet.odds, bet.stake_amount, bet.stake_currency, potential_payout))
+        
+        bet_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Record transaction
+        record_transaction(
+            user_id=current_user["id"],
+            tx_type="bet_placed",
+            currency=bet.stake_currency,
+            amount=bet.stake_amount,
+            reference_id=str(bet_id),
+            description=f"Bet on {bet.event_name}"
+        )
+        
+        return {
+            "success": True,
+            "bet_id": bet_id,
+            "stake_amount": bet.stake_amount,
+            "potential_payout": round(potential_payout, 2),
+            "status": "pending"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Bet placement failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to place bet")
+
+@app.get("/bets/history")
+async def get_bet_history(
+    limit: int = 50,
+    status: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get user bet history."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        if status:
+            cursor.execute('''
+            SELECT * FROM bets 
+            WHERE user_id = ? AND status = ?
+            ORDER BY placed_at DESC 
+            LIMIT ?
+            ''', (current_user["id"], status, limit))
+        else:
+            cursor.execute('''
+            SELECT * FROM bets 
+            WHERE user_id = ? 
+            ORDER BY placed_at DESC 
+            LIMIT ?
+            ''', (current_user["id"], limit))
+        
+        bets = [dict(row) for row in cursor.fetchall()]
+        
+        return {
+            "bets": bets,
+            "count": len(bets)
+        }
+        
+    finally:
+        conn.close()
+
+@app.post("/bets/{bet_id}/resolve")
+async def resolve_bet(
+    bet_id: int,
+    result: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Resolve a bet (admin/simulation endpoint)."""
+    if result not in ["won", "lost", "void"]:
+        raise HTTPException(status_code=400, detail="Invalid result")
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Get bet
+        cursor.execute("SELECT * FROM bets WHERE id = ? AND user_id = ?", (bet_id, current_user["id"]))
+        bet = cursor.fetchone()
+        
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        
+        if bet["status"] != "pending":
+            raise HTTPException(status_code=400, detail="Bet already settled")
+        
+        bet = dict(bet)
+        settled_amount = 0.0
+        
+        if result == "won":
+            settled_amount = bet["potential_payout"]
+            update_wallet_balance(current_user["id"], bet["stake_currency"], settled_amount)
+        elif result == "void":
+            settled_amount = bet["stake_amount"]
+            update_wallet_balance(current_user["id"], bet["stake_currency"], settled_amount)
+        
+        # Update bet
+        cursor.execute('''
+        UPDATE bets 
+        SET status = 'settled', result = ?, settled_amount = ?, settled_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        ''', (result, settled_amount, bet_id))
+        
+        conn.commit()
+        
+        # Record transaction if won or void
+        if result in ["won", "void"]:
+            record_transaction(
+                user_id=current_user["id"],
+                tx_type="bet_won" if result == "won" else "bet_void",
+                currency=bet["stake_currency"],
+                amount=settled_amount,
+                reference_id=str(bet_id),
+                description=f"Bet settled: {result}"
+            )
+        
+        return {
+            "success": True,
+            "bet_id": bet_id,
+            "result": result,
+            "settled_amount": settled_amount
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Bet resolution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to resolve bet")
+    finally:
+        conn.close()
+
+# ===========================
+# CASINO ENDPOINTS
+# ===========================
+
+@app.post("/casino/play")
+@limiter.limit("30/minute")
+async def casino_play(
+    request: Request,
+    play_req: CasinoPlayRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Play casino games."""
+    try:
+        # Validate currency and balance
+        if not is_currency_supported(play_req.bet_currency):
+            raise HTTPException(status_code=400, detail="Unsupported currency")
+        
+        wallet = get_user_wallet(current_user["id"], play_req.bet_currency)
+        if not wallet or wallet["balance"] < play_req.bet_amount:
+            raise HTTPException(status_code=400, detail="Insufficient balance")
+        
+        # Deduct bet from wallet
+        update_wallet_balance(current_user["id"], play_req.bet_currency, -play_req.bet_amount)
+        
+        # Simulate casino game (slots example)
+        game_result = {}
+        payout = 0.0
+        result_status = "loss"
+        
+        if play_req.game.lower() == "slots":
+            # Simple slots simulation: 3 reels
+            reels = [random.choice(["🍒", "🍋", "💎", "7️⃣"]) for _ in range(3)]
+            game_result["reels"] = reels
+            
+            if len(set(reels)) == 1:  # All match
+                multiplier = random.uniform(5, 20)
+                payout = play_req.bet_amount * multiplier
+                result_status = "win"
+            elif len(set(reels)) == 2:  # Two match
+                multiplier = random.uniform(1.5, 3)
+                payout = play_req.bet_amount * multiplier
+                result_status = "win"
+            
+            game_result["multiplier"] = multiplier if result_status == "win" else 0
+        
+        # Credit winnings if any
+        if payout > 0:
+            update_wallet_balance(current_user["id"], play_req.bet_currency, payout)
+        
+        # Record bet
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT INTO bets (user_id, bet_type, sport, event_name, selection, odds, 
+                         stake_amount, stake_currency, potential_payout, status, result, settled_amount)
+        VALUES (?, 'casino', ?, ?, ?, 0, ?, ?, ?, 'settled', ?, ?)
+        ''', (current_user["id"], play_req.game, play_req.game, "casino_play", 
+              play_req.bet_amount, play_req.bet_currency, payout, result_status, payout))
+        
+        bet_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        # Record transaction
+        record_transaction(
+            user_id=current_user["id"],
+            tx_type="casino_play",
+            currency=play_req.bet_currency,
+            amount=play_req.bet_amount,
+            reference_id=str(bet_id),
+            description=f"Casino play: {play_req.game}",
+            metadata={"game": play_req.game, "result": result_status, "payout": payout}
+        )
+        
+        return {
+            "success": True,
+            "bet_id": bet_id,
+            "game": play_req.game,
+            "result": result_status,
+            "game_result": game_result,
+            "bet_amount": play_req.bet_amount,
+            "payout": round(payout, 2),
+            "net_profit": round(payout - play_req.bet_amount, 2)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Casino play failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Casino play failed")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
