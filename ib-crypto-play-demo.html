@@ -1,135 +1,1206 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IBC Play Demo</title>
+    <title>IBC Play - Crypto Sports Betting & Casino</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Cohesive dark theme (black/gold/green) - responsive */
-        body { background: #121212; color: #fff; font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-        .container { max-width: 800px; margin: auto; }
-        button { background: #ffd700; color: #000; border: none; padding: 10px 20px; cursor: pointer; border-radius: 5px; }
-        button:hover { background: #e6c200; }
-        input { background: #333; color: #fff; border: 1px solid #ffd700; padding: 8px; margin: 5px; border-radius: 5px; }
-        .wallet { background: #1e1e1e; padding: 15px; border-radius: 10px; margin: 20px 0; }
-        .reels { display: flex; justify-content: center; font-size: 2em; }
-        @media (max-width: 600px) { .container { padding: 10px; } button { width: 100%; } }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card-shadow {
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+        .slot-reel {
+            font-size: 3rem;
+            animation: spin 0.5s ease-in-out;
+        }
+        @keyframes spin {
+            0% { transform: translateY(-100%); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
     </style>
-    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
 </head>
-<body>
+<body class="bg-gray-50">
     <div id="root"></div>
-    <script type="text/babel">
-        const { useState, useEffect } = React;
 
-        const API_BASE = 'http://localhost:8000';  // Change to prod URL
+```
+<script type="text/babel">
+    const { useState, useEffect } = React;
 
-        function App() {
-            const [token, setToken] = useState('');
-            const [username, setUsername] = useState('');
-            const [password, setPassword] = useState('');
-            const [balances, setBalances] = useState({ usd: 0, crypto: {} });
-            const [betGame, setBetGame] = useState('');
-            const [betAmount, setBetAmount] = useState(0);
-            const [betOdds, setBetOdds] = useState(1.5);
-            const [slotsAmount, setSlotsAmount] = useState(0);
-            const [result, setResult] = useState('');
-            const [reels, setReels] = useState([]);
+    // API Configuration
+    const API_BASE = window.location.hostname === 'localhost' 
+        ? 'http://localhost:8000' 
+        : 'https://your-render-url.onrender.com';
 
-            const headers = () => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' });
-
-            const login = async () => {
-                try {
-                    const res = await fetch(`${API_BASE}/login`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: `username=${username}&password=${password}`
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        setToken(data.access_token);
-                        fetchBalances();
-                    } else alert('Login failed');
-                } catch (e) { alert('Error: ' + e); }
+    // Utility Functions
+    const api = {
+        async call(endpoint, options = {}) {
+            const token = localStorage.getItem('token');
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
             };
 
-            const fetchBalances = async () => {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    ...options,
+                    headers: { ...headers, ...options.headers }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'API request failed');
+                }
+
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                throw error;
+            }
+        }
+    };
+
+    // Main App Component
+    function App() {
+        const [isLoggedIn, setIsLoggedIn] = useState(false);
+        const [user, setUser] = useState(null);
+        const [activeTab, setActiveTab] = useState('casino');
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+            checkAuth();
+        }, []);
+
+        const checkAuth = async () => {
+            const token = localStorage.getItem('token');
+            if (token) {
                 try {
-                    const res = await fetch(`${API_BASE}/balances`, { headers: headers() });
-                    if (res.ok) setBalances(await res.json());
-                } catch (e) { console.error(e); }
-            };
+                    const userData = await api.call('/me');
+                    setUser(userData);
+                    setIsLoggedIn(true);
+                } catch (error) {
+                    localStorage.removeItem('token');
+                }
+            }
+            setLoading(false);
+        };
 
-            const placeBet = async () => {
-                try {
-                    const res = await fetch(`${API_BASE}/bets`, {
-                        method: 'POST',
-                        headers: headers(),
-                        body: JSON.stringify({ game: betGame, amount_usd: parseFloat(betAmount), odds: parseFloat(betOdds) })
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        setResult(`Bet Result: ${data.result} - Payout: $${data.payout}`);
-                        fetchBalances();
-                    } else alert('Bet failed');
-                } catch (e) { alert('Error: ' + e); }
-            };
+        const handleLogin = (userData, token) => {
+            localStorage.setItem('token', token);
+            setUser(userData);
+            setIsLoggedIn(true);
+        };
 
-            const playSlots = async () => {
-                try {
-                    const res = await fetch(`${API_BASE}/casino/play`, {
-                        method: 'POST',
-                        headers: headers(),
-                        body: JSON.stringify({ amount_usd: parseFloat(slotsAmount) })
-                    });
-                    const data = await res.json();
-                    if (res.ok) {
-                        setReels(data.reels);
-                        setResult(`Slots Result: ${data.result} - Payout: $${data.payout}`);
-                        fetchBalances();
-                    } else alert('Play failed');
-                } catch (e) { alert('Error: ' + e); }
-            };
+        const handleLogout = () => {
+            localStorage.removeItem('token');
+            setUser(null);
+            setIsLoggedIn(false);
+        };
 
-            useEffect(() => { if (token) fetchBalances(); }, [token]);
-
+        if (loading) {
             return (
-                <div className="container">
-                    <h1>IBC Play Demo</h1>
-                    {!token ? (
-                        <div>
-                            <input placeholder="Username" onChange={e => setUsername(e.target.value)} />
-                            <input type="password" placeholder="Password" onChange={e => setPassword(e.target.value)} />
-                            <button onClick={login}>Login/Register</button>
-                        </div>
-                    ) : (
-                        <div>
-                            <div className="wallet">
-                                <h2>Wallet</h2>
-                                <p>USD: ${balances.usd}</p>
-                                {Object.entries(balances.crypto).map(([asset, {amount, usd}]) => (
-                                    <p key={asset}>{asset}: {amount} (${usd})</p>
-                                ))}
-                            </div>
-                            <h2>Place Bet</h2>
-                            <input placeholder="Game" onChange={e => setBetGame(e.target.value)} />
-                            <input type="number" placeholder="Amount USD" onChange={e => setBetAmount(e.target.value)} />
-                            <input type="number" placeholder="Odds" value={betOdds} onChange={e => setBetOdds(e.target.value)} />
-                            <button onClick={placeBet}>Bet</button>
-                            <h2>Casino Slots</h2>
-                            <input type="number" placeholder="Amount USD" onChange={e => setSlotsAmount(e.target.value)} />
-                            <button onClick={playSlots}>Spin</button>
-                            {reels.length > 0 && <div className="reels">{reels.join(' | ')}</div>}
-                            {result && <p>{result}</p>}
-                        </div>
-                    )}
+                <div className="min-h-screen flex items-center justify-center">
+                    <div className="text-2xl text-gray-600">Loading...</div>
                 </div>
             );
         }
 
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
+        if (!isLoggedIn) {
+            return <AuthPage onLogin={handleLogin} />;
+        }
+
+        return (
+            <div className="min-h-screen bg-gray-50">
+                <Navbar user={user} onLogout={handleLogout} activeTab={activeTab} setActiveTab={setActiveTab} />
+                <main className="container mx-auto px-4 py-8">
+                    {activeTab === 'casino' && <CasinoSection />}
+                    {activeTab === 'sports' && <SportsSection />}
+                    {activeTab === 'wallet' && <WalletSection />}
+                    {activeTab === 'stats' && <StatsSection />}
+                </main>
+            </div>
+        );
+    }
+
+    // Auth Page Component
+    function AuthPage({ onLogin }) {
+        const [isLogin, setIsLogin] = useState(true);
+        const [formData, setFormData] = useState({
+            username: '',
+            email: '',
+            password: ''
+        });
+        const [error, setError] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            setError('');
+            setLoading(true);
+
+            try {
+                if (isLogin) {
+                    const formBody = new URLSearchParams();
+                    formBody.append('username', formData.username);
+                    formBody.append('password', formData.password);
+
+                    const response = await fetch(`${API_BASE}/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: formBody
+                    });
+
+                    if (!response.ok) throw new Error('Login failed');
+
+                    const { access_token } = await response.json();
+                    const userData = await api.call('/me', {
+                        headers: { 'Authorization': `Bearer ${access_token}` }
+                    });
+
+                    onLogin(userData, access_token);
+                } else {
+                    await api.call('/register', {
+                        method: 'POST',
+                        body: JSON.stringify(formData)
+                    });
+                    setIsLogin(true);
+                    alert('Registration successful! Please login.');
+                }
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="min-h-screen gradient-bg flex items-center justify-center px-4">
+                <div className="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+                    <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">IBC Play</h1>
+                    <p className="text-center text-gray-600 mb-8">Crypto Sports Betting & Casino</p>
+
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
+                            <input
+                                type="text"
+                                required
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                value={formData.username}
+                                onChange={(e) => setFormData({...formData, username: e.target.value})}
+                            />
+                        </div>
+
+                        {!isLogin && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                                <input
+                                    type="email"
+                                    required
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                    value={formData.email}
+                                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                                />
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+                            <input
+                                type="password"
+                                required
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                value={formData.password}
+                                onChange={(e) => setFormData({...formData, password: e.target.value})}
+                            />
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
+                                {error}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 transition disabled:opacity-50"
+                        >
+                            {loading ? 'Processing...' : (isLogin ? 'Login' : 'Register')}
+                        </button>
+                    </form>
+
+                    <div className="mt-6 text-center">
+                        <button
+                            onClick={() => setIsLogin(!isLogin)}
+                            className="text-purple-600 hover:text-purple-700 font-medium"
+                        >
+                            {isLogin ? 'Need an account? Register' : 'Have an account? Login'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Navbar Component
+    function Navbar({ user, onLogout, activeTab, setActiveTab }) {
+        return (
+            <nav className="gradient-bg text-white shadow-lg">
+                <div className="container mx-auto px-4 py-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-8">
+                            <h1 className="text-2xl font-bold">IBC Play</h1>
+                            <div className="flex space-x-4">
+                                <button
+                                    onClick={() => setActiveTab('casino')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 'casino' ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                                >
+                                    🎰 Casino
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('sports')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 'sports' ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                                >
+                                    ⚽ Sports
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('wallet')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 'wallet' ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                                >
+                                    💰 Wallet
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('stats')}
+                                    className={`px-4 py-2 rounded-lg font-medium transition ${activeTab === 'stats' ? 'bg-white/20' : 'hover:bg-white/10'}`}
+                                >
+                                    📊 Stats
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                            <span className="font-medium">👤 {user.username}</span>
+                            <button
+                                onClick={onLogout}
+                                className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium transition"
+                            >
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </nav>
+        );
+    }
+
+    // Casino Section Component
+    function CasinoSection() {
+        const [selectedGame, setSelectedGame] = useState('slots');
+        const [betAmount, setBetAmount] = useState(10);
+        const [gameResult, setGameResult] = useState(null);
+        const [loading, setLoading] = useState(false);
+        const [balance, setBalance] = useState(0);
+        const [gameOptions, setGameOptions] = useState({
+            dice: { prediction: 'over', target: 50 },
+            coinflip: { choice: 'heads' },
+            roulette: { bet_type: 'color', bet_value: 'red' },
+            crash: { cashout_multiplier: 2.0 }
+        });
+
+        useEffect(() => {
+            loadBalance();
+        }, []);
+
+        const loadBalance = async () => {
+            try {
+                const wallets = await api.call('/wallet');
+                const usdWallet = wallets.find(w => w.currency === 'USD');
+                setBalance(usdWallet?.balance || 0);
+            } catch (error) {
+                console.error('Failed to load balance:', error);
+            }
+        };
+
+        const playGame = async () => {
+            setLoading(true);
+            setGameResult(null);
+
+            try {
+                const payload = {
+                    game: selectedGame,
+                    bet_amount: betAmount,
+                    bet_options: gameOptions[selectedGame] || {}
+                };
+
+                const result = await api.call('/casino/play', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                setGameResult(result);
+                setBalance(result.new_balance);
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2">
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <h2 className="text-2xl font-bold mb-6">Casino Games</h2>
+
+                        <div className="grid grid-cols-3 gap-4 mb-6">
+                            {['slots', 'dice', 'coinflip', 'roulette', 'crash', 'blackjack'].map(game => (
+                                <button
+                                    key={game}
+                                    onClick={() => setSelectedGame(game)}
+                                    className={`p-4 rounded-lg font-semibold capitalize transition ${
+                                        selectedGame === game 
+                                            ? 'bg-purple-600 text-white' 
+                                            : 'bg-gray-100 hover:bg-gray-200'
+                                    }`}
+                                >
+                                    {game}
+                                </button>
+                            ))}
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Bet Amount (USD)
+                            </label>
+                            <input
+                                type="number"
+                                min="1"
+                                max="10000"
+                                value={betAmount}
+                                onChange={(e) => setBetAmount(Number(e.target.value))}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                            />
+                        </div>
+
+                        {selectedGame === 'dice' && (
+                            <div className="space-y-4 mb-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Prediction</label>
+                                    <select
+                                        value={gameOptions.dice.prediction}
+                                        onChange={(e) => setGameOptions({
+                                            ...gameOptions,
+                                            dice: { ...gameOptions.dice, prediction: e.target.value }
+                                        })}
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                                    >
+                                        <option value="over">Over</option>
+                                        <option value="under">Under</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Target Number: {gameOptions.dice.target}
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="1"
+                                        max="99"
+                                        value={gameOptions.dice.target}
+                                        onChange={(e) => setGameOptions({
+                                            ...gameOptions,
+                                            dice: { ...gameOptions.dice, target: Number(e.target.value) }
+                                        })}
+                                        className="w-full"
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {selectedGame === 'coinflip' && (
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Choose Side</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <button
+                                        onClick={() => setGameOptions({
+                                            ...gameOptions,
+                                            coinflip: { choice: 'heads' }
+                                        })}
+                                        className={`p-4 rounded-lg font-semibold ${
+                                            gameOptions.coinflip.choice === 'heads'
+                                                ? 'bg-purple-600 text-white'
+                                                : 'bg-gray-100 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Heads
+                                    </button>
+                                    <button
+                                        onClick={() => setGameOptions({
+                                            ...gameOptions,
+                                            coinflip: { choice: 'tails' }
+                                        })}
+                                        className={`p-4 rounded-lg font-semibold ${
+                                            gameOptions.coinflip.choice === 'tails'
+                                                ? 'bg-purple-600 text-white'
+                                                : 'bg-gray-100 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Tails
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {selectedGame === 'roulette' && (
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Bet Type</label>
+                                <select
+                                    value={gameOptions.roulette.bet_type}
+                                    onChange={(e) => setGameOptions({
+                                        ...gameOptions,
+                                        roulette: { ...gameOptions.roulette, bet_type: e.target.value }
+                                    })}
+                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg mb-4"
+                                >
+                                    <option value="color">Color</option>
+                                    <option value="odd_even">Odd/Even</option>
+                                    <option value="number">Number</option>
+                                </select>
+
+                                {gameOptions.roulette.bet_type === 'color' && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <button
+                                            onClick={() => setGameOptions({
+                                                ...gameOptions,
+                                                roulette: { ...gameOptions.roulette, bet_value: 'red' }
+                                            })}
+                                            className={`p-4 rounded-lg font-semibold ${
+                                                gameOptions.roulette.bet_value === 'red'
+                                                    ? 'bg-red-600 text-white'
+                                                    : 'bg-gray-100 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            Red
+                                        </button>
+                                        <button
+                                            onClick={() => setGameOptions({
+                                                ...gameOptions,
+                                                roulette: { ...gameOptions.roulette, bet_value: 'black' }
+                                            })}
+                                            className={`p-4 rounded-lg font-semibold ${
+                                                gameOptions.roulette.bet_value === 'black'
+                                                    ? 'bg-black text-white'
+                                                    : 'bg-gray-100 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            Black
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {selectedGame === 'crash' && (
+                            <div className="mb-6">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
+                                    Cashout Multiplier: {gameOptions.crash.cashout_multiplier.toFixed(2)}x
+                                </label>
+                                <input
+                                    type="range"
+                                    min="1.1"
+                                    max="10"
+                                    step="0.1"
+                                    value={gameOptions.crash.cashout_multiplier}
+                                    onChange={(e) => setGameOptions({
+                                        ...gameOptions,
+                                        crash: { cashout_multiplier: Number(e.target.value) }
+                                    })}
+                                    className="w-full"
+                                />
+                            </div>
+                        )}
+
+                        <button
+                            onClick={playGame}
+                            disabled={loading || betAmount > balance}
+                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-lg font-bold text-lg hover:from-purple-700 hover:to-pink-700 transition disabled:opacity-50"
+                        >
+                            {loading ? 'Playing...' : `Play ${selectedGame.charAt(0).toUpperCase() + selectedGame.slice(1)}`}
+                        </button>
+
+                        {gameResult && (
+                            <div className={`mt-6 p-6 rounded-lg ${gameResult.result.won ? 'bg-green-50 border-2 border-green-500' : 'bg-red-50 border-2 border-red-500'}`}>
+                                <h3 className={`text-2xl font-bold mb-4 ${gameResult.result.won ? 'text-green-700' : 'text-red-700'}`}>
+                                    {gameResult.result.won ? '🎉 You Won!' : '😔 You Lost'}
+                                </h3>
+                                
+                                {selectedGame === 'slots' && (
+                                    <div className="flex justify-center space-x-4 mb-4">
+                                        {gameResult.result.reels.map((symbol, i) => (
+                                            <div key={i} className="slot-reel">{symbol}</div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {selectedGame === 'dice' && (
+                                    <div className="text-center mb-4">
+                                        <div className="text-6xl font-bold text-purple-600">{gameResult.result.roll}</div>
+                                        <div className="text-gray-600 mt-2">
+                                            Target: {gameResult.result.target} ({gameResult.result.prediction})
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedGame === 'coinflip' && (
+                                    <div className="text-center mb-4">
+                                        <div className="text-4xl font-bold capitalize">{gameResult.result.result}</div>
+                                    </div>
+                                )}
+
+                                {selectedGame === 'roulette' && (
+                                    <div className="text-center mb-4">
+                                        <div className="text-6xl font-bold text-purple-600">{gameResult.result.number}</div>
+                                        <div className="text-gray-600 mt-2 capitalize">
+                                            Color: {gameResult.result.color}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="space-y-2 text-center">
+                                    <div className="text-lg">
+                                        <span className="font-medium">Payout:</span> ${gameResult.result.payout.toFixed(2)}
+                                    </div>
+                                    <div className={`text-xl font-bold ${gameResult.profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                        {gameResult.profit_loss >= 0 ? '+' : ''}${gameResult.profit_loss.toFixed(2)}
+                                    </div>
+                                    <div className="text-sm text-gray-600">
+                                        New Balance: ${gameResult.new_balance.toFixed(2)}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div>
+                    <div className="bg-white rounded-xl card-shadow p-6 sticky top-6">
+                        <h3 className="text-xl font-bold mb-4">Account Balance</h3>
+                        <div className="text-4xl font-bold text-purple-600 mb-6">
+                            ${balance.toFixed(2)}
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <div className="text-sm text-gray-600">Min Bet</div>
+                                <div className="text-lg font-semibold">$1.00</div>
+                            </div>
+                            <div className="bg-gray-50 p-4 rounded-lg">
+                                <div className="text-sm text-gray-600">Max Bet</div>
+                                <div className="text-lg font-semibold">$10,000</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Sports Section Component
+    function SportsSection() {
+        const [matches, setMatches] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [selectedMatch, setSelectedMatch] = useState(null);
+        const [betAmount, setBetAmount] = useState(10);
+        const [balance, setBalance] = useState(0);
+
+        useEffect(() => {
+            loadMatches();
+            loadBalance();
+        }, []);
+
+        const loadMatches = async () => {
+            try {
+                const data = await api.call('/bets/matches');
+                setMatches(data.matches);
+            } catch (error) {
+                console.error('Failed to load matches:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadBalance = async () => {
+            try {
+                const wallets = await api.call('/wallet');
+                const usdWallet = wallets.find(w => w.currency === 'USD');
+                setBalance(usdWallet?.balance || 0);
+            } catch (error) {
+                console.error('Failed to load balance:', error);
+            }
+        };
+
+        const placeBet = async (match, selection, odds) => {
+            if (betAmount > balance) {
+                alert('Insufficient balance');
+                return;
+            }
+
+            try {
+                const payload = {
+                    match_id: match.match_id,
+                    sport: match.sport,
+                    home_team: match.home_team,
+                    away_team: match.away_team,
+                    bet_type: 'match_result',
+                    bet_selection: selection,
+                    bet_amount: betAmount,
+                    odds: odds
+                };
+
+                const result = await api.call('/bets', {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+
+                alert(`Bet placed successfully! Potential payout: $${result.potential_payout.toFixed(2)}`);
+                setBalance(result.new_balance);
+                setSelectedMatch(null);
+            } catch (error) {
+                alert(error.message);
+            }
+        };
+
+        if (loading) {
+            return <div className="text-center py-12">Loading matches...</div>;
+        }
+
+        return (
+            <div className="max-w-4xl mx-auto">
+                <div className="bg-white rounded-xl card-shadow p-6 mb-6">
+                    <h2 className="text-2xl font-bold mb-2">Upcoming Matches</h2>
+                    <div className="text-gray-600 mb-4">Balance: ${balance.toFixed(2)}</div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Bet Amount (USD)
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="10000"
+                            value={betAmount}
+                            onChange={(e) => setBetAmount(Number(e.target.value))}
+                            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                        />
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    {matches.map(match => (
+                        <div key={match.match_id} className="bg-white rounded-xl card-shadow p-6">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center space-x-3">
+                                    <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-semibold">
+                                        {match.sport}
+                                    </span>
+                                    <span className="text-gray-500 text-sm">
+                                        {new Date(match.match_start_time).toLocaleString()}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4 mb-4">
+                                <div className="text-center">
+                                    <div className="font-semibold text-lg mb-2">{match.home_team}</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-gray-400">VS</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="font-semibold text-lg mb-2">{match.away_team}</div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3">
+                                {Object.entries(match.odds).map(([key, odds]) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => placeBet(match, key, odds)}
+                                        className="bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 px-4 rounded-lg hover:from-purple-700 hover:to-pink-700 transition"
+                                    >
+                                        <div className="text-sm capitalize">{key.replace('_', ' ')}</div>
+                                        <div className="text-xl font-bold">{odds.toFixed(2)}x</div>
+                                        <div className="text-xs opacity-80">
+                                            Win: ${(betAmount * odds).toFixed(2)}
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // Wallet Section Component
+    function WalletSection() {
+        const [wallets, setWallets] = useState([]);
+        const [prices, setPrices] = useState({});
+        const [loading, setLoading] = useState(true);
+        const [showDeposit, setShowDeposit] = useState(false);
+        const [showWithdraw, setShowWithdraw] = useState(false);
+        const [transactions, setTransactions] = useState([]);
+
+        useEffect(() => {
+            loadWallets();
+            loadPrices();
+            loadTransactions();
+        }, []);
+
+        const loadWallets = async () => {
+            try {
+                const data = await api.call('/wallet');
+                setWallets(data);
+            } catch (error) {
+                console.error('Failed to load wallets:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadPrices = async () => {
+            try {
+                const data = await api.call('/crypto/prices');
+                setPrices(data.prices);
+            } catch (error) {
+                console.error('Failed to load prices:', error);
+            }
+        };
+
+        const loadTransactions = async () => {
+            try {
+                const data = await api.call('/transactions');
+                setTransactions(data.slice(0, 10));
+            } catch (error) {
+                console.error('Failed to load transactions:', error);
+            }
+        };
+
+        if (loading) {
+            return <div className="text-center py-12">Loading wallet...</div>;
+        }
+
+        return (
+            <div className="max-w-6xl mx-auto">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <h2 className="text-2xl font-bold mb-6">Your Wallets</h2>
+                        <div className="space-y-4">
+                            {wallets.map(wallet => (
+                                <div key={wallet.currency} className="bg-gradient-to-r from-purple-50 to-pink-50 p-4 rounded-lg">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="text-sm text-gray-600">{wallet.currency}</div>
+                                            <div className="text-2xl font-bold">
+                                                {wallet.currency === 'USD' ? '$' : ''}{wallet.balance.toFixed(wallet.currency === 'USD' ? 2 : 8)}
+                                            </div>
+                                            {wallet.currency !== 'USD' && prices[wallet.currency] && (
+                                                <div className="text-sm text-gray-500">
+                                                    ≈ ${(wallet.balance * prices[wallet.currency]).toFixed(2)} USD
+                                                </div>
+                                            )}
+                                        </div>
+                                        {wallet.currency !== 'USD' && prices[wallet.currency] && (
+                                            <div className="text-right">
+                                                <div className="text-sm text-gray-600">Price</div>
+                                                <div className="font-semibold">${prices[wallet.currency].toFixed(2)}</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mt-6">
+                            <button
+                                onClick={() => setShowDeposit(true)}
+                                className="bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition"
+                            >
+                                💰 Deposit
+                            </button>
+                            <button
+                                onClick={() => setShowWithdraw(true)}
+                                className="bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+                            >
+                                🏦 Withdraw
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <h2 className="text-2xl font-bold mb-6">Crypto Prices</h2>
+                        <div className="space-y-4">
+                            {Object.entries(prices).map(([symbol, price]) => (
+                                <div key={symbol} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+                                    <div className="font-semibold">{symbol}</div>
+                                    <div className="text-xl font-bold text-purple-600">${price.toFixed(2)}</div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl card-shadow p-6">
+                    <h2 className="text-2xl font-bold mb-6">Recent Transactions</h2>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Type</th>
+                                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Amount</th>
+                                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
+                                    <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                                {transactions.map((tx, i) => (
+                                    <tr key={i}>
+                                        <td className="px-4 py-3 capitalize">{tx.transaction_type.replace('_', ' ')}</td>
+                                        <td className={`px-4 py-3 font-semibold ${tx.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                            {tx.amount >= 0 ? '+' : ''}${Math.abs(tx.amount).toFixed(2)}
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                                tx.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                            }`}>
+                                                {tx.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-sm text-gray-600">
+                                            {new Date(tx.created_at).toLocaleString()}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                {showDeposit && <DepositModal onClose={() => { setShowDeposit(false); loadWallets(); }} />}
+                {showWithdraw && <WithdrawModal onClose={() => { setShowWithdraw(false); loadWallets(); }} />}
+            </div>
+        );
+    }
+
+    // Deposit Modal Component
+    function DepositModal({ onClose }) {
+        const [cryptoSymbol, setCryptoSymbol] = useState('BTC');
+        const [amount, setAmount] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const handleDeposit = async () => {
+            setLoading(true);
+            try {
+                await api.call('/deposit', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        crypto_symbol: cryptoSymbol,
+                        amount: parseFloat(amount)
+                    })
+                });
+                alert('Deposit successful!');
+                onClose();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-xl p-6 max-w-md w-full">
+                    <h2 className="text-2xl font-bold mb-4">Deposit Crypto</h2>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Cryptocurrency</label>
+                            <select
+                                value={cryptoSymbol}
+                                onChange={(e) => setCryptoSymbol(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                            >
+                                <option value="BTC">Bitcoin (BTC)</option>
+                                <option value="ETH">Ethereum (ETH)</option>
+                                <option value="SOL">Solana (SOL)</option>
+                                <option value="BNB">Binance Coin (BNB)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                            <input
+                                type="number"
+                                step="0.00000001"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                                placeholder="0.00"
+                            />
+                        </div>
+
+                        <div className="flex space-x-4">
+                            <button
+                                onClick={handleDeposit}
+                                disabled={loading || !amount}
+                                className="flex-1 bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 transition disabled:opacity-50"
+                            >
+                                {loading ? 'Processing...' : 'Deposit'}
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-400 transition"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Withdraw Modal Component
+    function WithdrawModal({ onClose }) {
+        const [cryptoSymbol, setCryptoSymbol] = useState('BTC');
+        const [amount, setAmount] = useState('');
+        const [address, setAddress] = useState('');
+        const [loading, setLoading] = useState(false);
+
+        const handleWithdraw = async () => {
+            setLoading(true);
+            try {
+                await api.call('/withdraw', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        crypto_symbol: cryptoSymbol,
+                        amount: parseFloat(amount),
+                        address: address
+                    })
+                });
+                alert('Withdrawal successful!');
+                onClose();
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                <div className="bg-white rounded-xl p-6 max-w-md w-full">
+                    <h2 className="text-2xl font-bold mb-4">Withdraw Crypto</h2>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Cryptocurrency</label>
+                            <select
+                                value={cryptoSymbol}
+                                onChange={(e) => setCryptoSymbol(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                            >
+                                <option value="BTC">Bitcoin (BTC)</option>
+                                <option value="ETH">Ethereum (ETH)</option>
+                                <option value="SOL">Solana (SOL)</option>
+                                <option value="BNB">Binance Coin (BNB)</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                            <input
+                                type="number"
+                                step="0.00000001"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                                placeholder="0.00"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Wallet Address</label>
+                            <input
+                                type="text"
+                                value={address}
+                                onChange={(e) => setAddress(e.target.value)}
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg"
+                                placeholder="Enter wallet address"
+                            />
+                        </div>
+
+                        <div className="flex space-x-4">
+                            <button
+                                onClick={handleWithdraw}
+                                disabled={loading || !amount || !address}
+                                className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition disabled:opacity-50"
+                            >
+                                {loading ? 'Processing...' : 'Withdraw'}
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-400 transition"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Stats Section Component
+    function StatsSection() {
+        const [stats, setStats] = useState(null);
+        const [casinoHistory, setCasinoHistory] = useState([]);
+        const [betHistory, setBetHistory] = useState([]);
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+            loadStats();
+            loadHistory();
+        }, []);
+
+        const loadStats = async () => {
+            try {
+                const data = await api.call('/stats/user');
+                setStats(data);
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        const loadHistory = async () => {
+            try {
+                const [casino, bets] = await Promise.all([
+                    api.call('/casino/history?limit=10'),
+                    api.call('/bets/history?limit=10')
+                ]);
+                setCasinoHistory(casino);
+                setBetHistory(bets);
+            } catch (error) {
+                console.error('Failed to load history:', error);
+            }
+        };
+
+        if (loading) {
+            return <div className="text-center py-12">Loading statistics...</div>;
+        }
+
+        return (
+            <div className="max-w-6xl mx-auto">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <div className="text-gray-600 mb-2">Casino Games Played</div>
+                        <div className="text-3xl font-bold text-purple-600">{stats.casino.total_games}</div>
+                        <div className="text-sm text-gray-500 mt-2">
+                            Total Wagered: ${stats.casino.total_wagered.toFixed(2)}
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <div className="text-gray-600 mb-2">Casino Profit/Loss</div>
+                        <div className={`text-3xl font-bold ${stats.casino.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {stats.casino.total_profit >= 0 ? '+' : ''}${stats.casino.total_profit.toFixed(2)}
+                        </div>
+                        <div className="text-sm text-gray-500 mt-2">All-time performance</div>
+                    </div>
+
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <div className="text-gray-600 mb-2">Sports Bets</div>
+                        <div className="text-3xl font-bold text-blue-600">{stats.betting.total_bets}</div>
+                        <div className="text-sm text-gray-500 mt-2">
+                            Total Wagered: ${stats.betting.total_wagered.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <h2 className="text-2xl font-bold mb-4">Casino History</h2>
+                        <div className="space-y-3">
+                            {casinoHistory.map((round, i) => (
+                                <div key={i} className="border-l-4 border-purple-500 pl-4 py-2">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-semibold capitalize">{round.game_name}</div>
+                                            <div className="text-sm text-gray-600">
+                                                Bet: ${round.bet_amount.toFixed(2)}
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className={`font-bold ${round.is_win ? 'text-green-600' : 'text-red-600'}`}>
+                                                {round.is_win ? 'Won' : 'Lost'}
+                                            </div>
+                                            <div className={`text-sm ${round.profit_loss >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                {round.profit_loss >= 0 ? '+' : ''}${round.profit_loss.toFixed(2)}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-xl card-shadow p-6">
+                        <h2 className="text-2xl font-bold mb-4">Sports Betting History</h2>
+                        <div className="space-y-3">
+                            {betHistory.map((bet, i) => (
+                                <div key={i} className="border-l-4 border-blue-500 pl-4 py-2">
+                                    <div className="flex justify-between items-center">
+                                        <div>
+                                            <div className="font-semibold">{bet.home_team} vs {bet.away_team}</div>
+                                            <div className="text-sm text-gray-600">
+                                                {bet.bet_selection} @ {bet.odds.toFixed(2)}x
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className={`px-2 py-1 rounded text-xs font-semibold ${
+                                                bet.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                bet.result === 'won' ? 'bg-green-100 text-green-700' :
+                                                'bg-red-100 text-red-700'
+                                            }`}>
+                                                {bet.status === 'pending' ? 'Pending' : bet.result}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Render the app
+    ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+```
+
 </body>
 </html>
